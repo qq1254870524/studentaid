@@ -1,0 +1,11 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+set "PYTHONDONTWRITEBYTECODE=1"
+python -B "%~dp0ait3.py"
+if errorlevel 1 (
+    echo.
+    echo ?????????????????
+    pause
+)
+endlocal
