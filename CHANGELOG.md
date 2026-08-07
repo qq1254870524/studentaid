@@ -1,5 +1,45 @@
 # 更新日志
 
+## v0.7-step12-headless — 2026-08-08
+
+### GUI 与四种组合
+
+- 正式源码升级为 `ait7.py`，旧版 `ait6.py` 和更早版本保持不改。
+- GUI 新增“浏览器显示”下拉框，值严格为 `窗口`、`无头`；默认 `无头`。原“浏览器后端”继续提供 `browser-use`、`playwright`，默认 2 线程。
+- 后端和显示模式完整贯通到 BatchEngine、worker、启动参数和运行日志；运行中两个下拉框都锁定，避免半个批次改变运行方式。
+- `窗口` 模式固定 900×720 小窗口和 880×650 viewport。现场首轮发现 browser-use 的默认 `--start-maximized` 覆盖自定义参数并实际打开成 2560×1600，现改用 BrowserProfile 的正式 `window_size` / `viewport` 字段，复测严格为 900×720。
+- 清浏览器数据后新建 `about:blank` 曾丢失 browser-use viewport；`_new_blank_page()` 现在每次都重新配置 880×650。
+
+### 无头兼容与进程清理
+
+- Chromium 原生 headless 的 UA 包含 `HeadlessChrome/151`，访问 StudentAid 实测立即出现 `net::ERR_HTTP2_PROTOCOL_ERROR`；强制 HTTP/1.1 后又会在主响应前等待 60 秒。仅修改 UA 不能解决协议层拒绝。
+- 本版按用户定义实现“无头＝看不到浏览器窗口”：Windows 上使用已验证可用的普通 Chrome 网络栈，启动位置先放到屏幕外，再只对本批次精确 PID 调用 `ShowWindow(SW_HIDE)`。不会隐藏或结束用户已有 Chrome。
+- browser-use 使用自身 Chrome 根 PID 及其子进程定位；Playwright 使用本版专属 `--window-position=-32000,-32000` 参数定位。四组合窗口可见性探针确认两个窗口模式各有一个可见小窗口，两个无头模式可见窗口数均为 0。
+- browser-use 失败页曾令关闭阶段停在 CDP 断开并留下两个 Chrome 树；结束顺序改为先结束精确 PID 树并删除整个一次性 profile，再停止 Playwright CDP 客户端。诊断会话关闭耗时 0.125-0.156 秒，最终矩阵每组残留 Chrome 均为 0。
+- 页面导航改为主文档收到即返回，随后仍严格等待字段可见、表单结构完整和 `Loading...` 消失，避免等待不影响表单的长连接资源。
+
+### Continue 实际点击修复
+
+- 用户现场指出填写完成后根本没有点击 Continue。探针确认按钮小窗口坐标为 `y=681`，超出 650 高 viewport；旧 `page.mouse.click()` 使用该坐标时没有命中页面。
+- 新版优先使用 Playwright `Locator.click()`，由浏览器自动滚动到按钮并执行真实点击；如果 5 秒内没有进入 Loading、按钮禁用、结果状态或目标路径，依次聚焦按钮按 Enter、调用原生 DOM `button.click()`。
+- 三种方式每一步都验证提交状态，全部未触发才重建会话；不会因为日志写了“正在点击”就误认为已经提交。
+- 修复后 browser-use/窗口双线程立即得到一条 `Retrieve Your Log-in Information` 和一条 `Account Not Found: Create a New Account`，累计 CSV 2×9、输入剩余 0、失败 0。
+
+### 现场验证
+
+- 四组合真实 Chrome 生命周期探针全部通过：browser-use/窗口 900×720，Playwright/窗口约 896×738（Chrome 边框差异）；两个无头组合可见窗口数 0；四者 viewport 均为 880×650、`navigator.webdriver=false`。
+- 四组合每次关闭后本批次新增 Chrome PID 都归零；browser-use 一次性 profile 均不存在。
+- 使用 `假资料测试4.xlsx` 隔离副本执行最终四组合矩阵，每组 2 线程、2 条资料：四组均 `completed=2`、`failed=0`、输入剩余 0、SQLite 仅有 completed、累计 CSV 为 2 行且每行 9 列、残留 Chrome 0。
+- 最终 8 条现场结果覆盖 7 条 `Retrieve Your Log-in Information` 和 1 条 `Account Not Found`；Retrieve 结果都在落盘后实际完成 Cancel 和空表单校验。
+- 自动回归由 16 项扩展到 18 项并全部通过，新增 browser-use 窗口/无头真实 Chrome、正常 UA、Continue 真点击和清数据后 viewport 回归。
+
+### 安装与发布
+
+- 新增统一入口 `启动StudentAid第十二步无头稳定版.cmd`，正式启动 `ait7.py`；Python 3.11+、Chrome、`.venv` 和四项依赖存在就跳过，缺少才安装。
+- 依赖继续固定 `browser-use==0.13.7`，使用系统 Chrome，不下载 Playwright Chromium。
+- 全新隔离目录首次执行安装模式用时 63.2 秒，成功创建 `.venv` 并装齐依赖；第二次执行用时约 1 秒，环境和依赖均显示 `[SKIP]`。隔离环境 GUI 冒烟检查确认默认 `browser-use + 无头 + 2线程`。
+- 发布包只包含正式源码、CMD、依赖清单和文档；开发测试脚本、假资料、实际输出参考、SQLite、现场结果、缓存、录制和 `.venv` 全部排除。
+
 ## v0.6-step11 — 2026-08-08
 
 ### GUI 与双后端
