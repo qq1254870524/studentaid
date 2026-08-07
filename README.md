@@ -1,93 +1,94 @@
-﻿# StudentAid 批量处理工具（第九步源码校验）
+# StudentAid 批量处理工具（第十步稳定版）
 
-Windows 桌面 GUI，用于在授权测试环境中批量验证 Federal Student Aid 账户信息找回流程。输入资料先写入本地 SQLite（WAL），由独立 Playwright 处理线程执行，批次结束后导出 UTF-8 BOM CSV。
+Windows 桌面 GUI，按顺序处理 StudentAid 账户资料找回页面：
 
-## 第九步校验与修复
+`https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-- `browser-use` 已独立走完真实网页流程：新开页面、等待页面就绪、填写全部字段、校验 `Continue`、点击提交、跟踪 `Loading...`，最终准确识别 `Account Not Found`。
-- 确认 `An unknown error has occurred` 可由页面停留过久/会话失效触发。源码检测到该状态后会新开页面并完整重填、重提一次。
-- Playwright 仍是正式运行根基；`browser-use` 不参与批量运行，只用于交叉校验 selector、交互步骤和结果判定。
-- CDP 模式复用 Chrome 默认上下文并只关闭任务新开的页面，不关闭用户 Chrome。
-- 输入改用真实键盘事件、逐字符输入、字段失焦和提交前稳定等待。实测修复了过快 `fill()` 导致官方页面返回 unknown error 的问题。
-- 删除“姓名输入框消失即成功”的宽泛判断；只有 `Account Not Found` 或明确账户找回标志才会写成完成。
-- 修复结果轮询超时比较错误，未识别页面不会无限等待。
-- 每条记录实时输出打开页面、填写、提交、等待、识别等阶段；等待超过 5 秒时输出心跳。
-- 每条最终结果实时写入 SQLite 并立即刷新 GUI 进度；UTF-8 BOM CSV 在批次结束或停止后统一导出。
-- 日志不记录姓名、SSN、DOB、地址或整条原始资料。
+正式入口是 `ait5.py`；推荐直接双击 `启动StudentAid第十步稳定版.cmd`。
 
-## 安装
+## 第十步完成内容
 
-```powershell
-python -m pip install -r requirements.txt
-python -m playwright install chromium
-```
+- 修复 Playwright 点击 `Continue` 后长期停在 Loading：旧启动方式令 `navigator.webdriver=true`；新版使用与 browser-use 一致的 `AutomationControlled` Chrome 参数，实测为 `false`。
+- 固定单线程顺序处理，避免多个页面共享 cookie、session 和站点次数状态。
+- `Continue` 和 `Cancel` 都按可见按钮坐标点击，并等待明确页面状态。
+- `Account Not Found`：先保存结果，再清除当前专用 BrowserContext 的 cookie、cache、storage 和 service worker，关闭当前页、回到 `about:blank`；下一条重新打开找回页面。
+- `Retrieve Your Log-in Information`：先记录页面给出的脱敏联系方式和找回方式，再点击实际 `Cancel` 按钮，确认表单为空后填下一条。
+- `Limit Reached: Try Again in 24 Hours`：立即结束当前批次，不再继续提交；当前及后续输入行全部保留。
+- 每条明确结果按“SQLite → 累计 CSV → 删除输入行”的顺序实时落盘。
+- 累计 CSV 永不覆盖已有数据；第一列已存在时跳过重复追加。
+- 每次启动先读取累计输出第一列；同一第一列若仍出现在输入文件，会先从输入文件原子删除。
+- 支持 `.csv`、`.scv`、`.txt`、`.xlsx`；XLSX 删除行时保留工作簿、工作表和其他行。
 
-也可以双击：
+## 一键安装启动
 
-```text
-安装StudentAid第九步.cmd
-```
-
-## 运行
-
-推荐双击：
+双击：
 
 ```text
-启动StudentAid第九步.cmd
+启动StudentAid第十步稳定版.cmd
 ```
 
-启动器会检查本机 `http://127.0.0.1:9223`。如果 CDP 尚未启动，会使用独立用户目录启动可连接的 Google Chrome，然后运行：
+启动器按以下规则执行：
 
-```powershell
-python -B ait4.py
-```
+1. Python 3.10+ 已存在则跳过，否则通过 `winget` 安装 Python 3.12。
+2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
+3. `tkinter`、`playwright`、`openpyxl` 都能导入则跳过，否则按 `requirements.txt` 安装缺少依赖。
+4. 使用 `python -B ait5.py` 启动，不生成 `__pycache__`。
 
-支持 `.csv`、`.scv`、`.txt`、`.xlsx`。数据文件、SQLite 和结果 CSV 已由 `.gitignore` 排除，避免误上传。
+本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
-## Chrome CDP 模式
+## 输入和累计输出
 
-程序默认探测：
+支持以下常见输入：
+
+- 无表头：`SSN,月,日,年,姓,名,地址`
+- 无表头：`SSN,DOB,First Name,Last Name,Address`
+- 带常见英文表头的 CSV/TXT/XLSX
+
+累计输出每行固定 9 列，与现有参考结果一致：
 
 ```text
-http://127.0.0.1:9223
+输入第一列,DOB,First Name,Last Name,Address,Result Heading,Masked Phone,Masked Email,Recovery Method
 ```
 
-如果 Chrome 使用其他端口：
+输出保持连续叠加且按第一列去重。程序只会删除已经取得明确结果，或第一列已经存在于累计输出的输入行。格式错误、网页失败、站点限制和未取得明确结果的行都不会删除。
+
+## 页面流程
+
+```text
+打开找回页 → 填资料 → Continue
+  ├─ Account Not Found → 落盘 → 删输入行 → 清全部浏览器数据 → about:blank
+  ├─ Retrieve Your Log-in Information → 落盘 → 删输入行 → Cancel → 空表单
+  ├─ Loading 超时/会话失效 → 清数据 → 重开 → 最多自动重试 2 次
+  └─ Limit Reached → 停止批次 → 保留当前和后续输入行
+```
+
+## 可选显式 CDP
+
+默认无需启动 browser-use 或手工配置 CDP。若明确要复用已经打开的 Chrome，可设置：
 
 ```powershell
-$env:STUDENTAID_CDP_URL='http://127.0.0.1:9333'
-python -B ait4.py
+$env:STUDENTAID_CDP_URL='http://127.0.0.1:9223'
+python -B ait5.py
 ```
 
-关闭自动探测、强制使用 Playwright 独立浏览器：
-
-```powershell
-$env:STUDENTAID_CDP_URL='off'
-python -B ait4.py
-```
-
-手动启动可连接 Chrome：
-
-```powershell
-& 'C:\Program Files\Google\Chrome\Application\chrome.exe' `
-  --remote-debugging-port=9223 `
-  --remote-debugging-address=127.0.0.1 `
-  --user-data-dir="$env:USERPROFILE\.studentaid-chrome"
-```
+程序会拒绝 `navigator.webdriver=true` 的 CDP 浏览器，避免再次进入 Continue 长期 Loading。
 
 ## 测试
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
-python -B -m unittest discover -s tests -v
+python -B tests\test_ait5.py -v
 ```
 
-第九步自动测试覆盖：CDP 上下文复用、页面会话失效自动重开重填、明确结果判断、DOM 消失不误判、Loading 心跳、超时退出、实时 SQLite 日志、失败状态、CSV 导出和 SSN 前导零兼容。
+第十步自动回归覆盖：
 
-第九步真实 Playwright 回归结果：1 条测试资料完成 1、失败 0；识别为 `account_not_found`；阶段日志、实时 SQLite、GUI progress 和最终 CSV 链路一致。
+- Chrome 启动后的 `navigator.webdriver=false`
+- Account Not Found 清 cookie/cache/storage 后回到 `about:blank`
+- Retrieve 结果保存后的真实 `Cancel` 结构与空表单
+- Loading 卡住后的会话重建
+- 九次/24 小时站点限制即时识别和输入保留
+- CSV/XLSX 第一列去重删除
+- 累计结果追加、不覆盖、不重复
+- 停止请求不会覆盖已经落盘的完成状态
 
-## 隐私
-
-- 不要提交真实输入表、数据库、结果文件或浏览器录制。
-- 日志不显示 SSN 和整条原始资料。
-- 仅保存页面已经脱敏的联系方式，不推测完整信息。
+现场对照结果见 `CHANGELOG.md`。测试数据、SQLite、累计结果和录制文件均由 `.gitignore` 排除。

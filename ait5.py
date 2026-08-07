@@ -1,7 +1,49 @@
 """
-StudentAid 浏览器自动化工具 v2。
+StudentAid 浏览器自动化工具 v5。
 
-2026-08-08 第七步更新：
+2026-08-08 第十步稳定版更新：
+1. Account Not Found 明确结果实时保存后，清除 StudentAid 专用浏览器全部站点数据，
+   回到 about:blank；处理下一条时重新打开找回页面。
+2. Retrieve Your Log-in Information 明确结果实时保存后，点击可见 Cancel，
+   等待返回空白输入表单，再填写下一条资料。
+3. 采用严格顺序处理，避免多个共享 CDP 页面同时清理 cookie/session 导致提交互相干扰。
+4. 累计结果实时追加到用户选择的 CSV，不覆盖旧数据；程序启动时读取输出第一列，
+   输入第一列已存在于输出的资料会直接从输入文件原子删除。
+5. 每条明确结果按“先写 SQLite、再追加累计 CSV、最后删除输入行”的顺序落盘，
+   中断重启时可依靠输出第一列去重并继续。
+6. 定位 Continue 转圈根因：Playwright 直接启动 Chrome 时 navigator.webdriver=true；
+   新版复用 browser-use 的 AutomationControlled 启动参数，实测启动后该标志为 false。
+7. Continue 改用可见按钮坐标鼠标点击；持续 Loading 自动清理、重开、重填并重试。
+8. 识别官方 Limit Reached: Try Again in 24 Hours，立即停止批次并保留当前及后续输入。
+9. browser-use 实测 Account Not Found、全数据清理、about:blank 重开及官方九次限制；
+   Retrieve 结果后的 Cancel 使用真实按钮结构并由 Playwright DOM 回归覆盖。
+10. 新增统一一键安装启动 CMD；依赖存在就跳过，缺少时才安装。
+
+2026-08-07 第九步源码校验更新：
+1. 使用 browser-use 独立核验 StudentAid 真实页面字段、Continue 按钮和提交状态时间线。
+2. 删除“姓名输入框消失即判定可找回”的宽泛条件；只有明确结果标志才允许完成，
+   防止页面跳转或短暂重绘被误判为成功。
+3. 页面结果等待改为可停止的短轮询；保留 Loading 等待，并准确识别站点错误。
+4. CDP 模式复用 Chrome 默认浏览器上下文并新开页面，保持与 browser-use 实测一致；
+   输入改用真实键盘事件、字段失焦和提交前稳定等待，修复过快 fill 导致站点返回 unknown error。
+5. 检测到因页面停留过久产生的 unknown error 时自动新开页面、重新填表并提交一次。
+6. 每条记录实时输出“打开页面、填写资料、已提交、等待结果、已识别结果”等安全阶段日志；
+   长时间等待时每 5 秒输出心跳，最终状态实时写 SQLite 并刷新 GUI，不记录原始资料。
+7. Playwright 仍是正式运行根基，browser-use 仅用于独立校验。
+
+2026-08-07 第八步实测更新：
+1. 保留第七步的 GUI、SQLite WAL、并发处理和 CSV 导出能力。
+2. 新增 Chrome CDP 连接模式：优先复用已通过站点网络校验的本机 Chrome，
+   解决新启动 Playwright 浏览器访问 StudentAid 时的 HTTP/2 协议错误。
+3. 支持 STUDENTAID_CDP_URL 显式指定 CDP 地址；未设置时自动探测
+   http://127.0.0.1:9223，设置为 off/none/disabled 可关闭自动探测。
+4. 新增页面导航重试、共享浏览器安全断开和浏览器模式日志。
+5. 修复输入页标题被误判为找回成功的问题；现在会等待 Loading 结束，
+   并把站点未知错误准确记录为失败。
+6. 修复纯文本 CSV 中全数字 SSN 被 float 转换吞掉前导 0 的问题。
+7. 第八步使用测试资料完成 GUI、浏览器、SQLite 和导出链路实测。
+
+2026-08-07 第七步更新（原 ait2.py 日期记录受本机时钟影响）：
 1. 新增 Tkinter GUI，可选择 CSV/SCV/TXT/XLSX 输入文件和结果目录。
 2. 导入资料先进入 SQLite；数据库固定启用 WAL。
 3. 使用多个独立 Playwright 处理线程和一个专用 SQLite 写入线程。
@@ -28,6 +70,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 from typing import Any, Callable, Iterable, Mapping, Sequence
 import uuid
 
@@ -40,8 +83,9 @@ except ImportError:  # GUI 仍可启动，并在开始处理时给出明确错�
     sync_playwright = None
 
 
-APP_TITLE = "StudentAid 批量处理工具 - 第七步"
+APP_TITLE = "StudentAid 批量处理工具 - 第十步稳定版"
 DATABASE_FILENAME = "studentaid.sqlite3"
+CUMULATIVE_OUTPUT_FILENAME = "StudentAid累计结果.csv"
 RETRIEVE_ACCOUNT_DETAILS_URL = (
     "https://studentaid.gov/fsa-id/sign-in/retrieve-account-details"
 )
@@ -105,14 +149,36 @@ class ImportedRecord:
 
 @dataclass(frozen=True)
 class WorkItem:
-    """数据库记录和浏览器处理线程之间传递的最小任务。"""
+    """SQLite、浏览器、累计输出和输入删行之间传递的任务。"""
 
     record_id: int
     details: AccountDetails
+    source_file: str = ""
+    source_sheet: str = ""
+    source_row: int = 0
+    original_fields: tuple[str, ...] = ()
+    address: str = ""
+
+    @property
+    def record_key(self) -> str:
+        first_value = self.original_fields[0] if self.original_fields else self.details.original_ssn
+        return _normalise_record_key(first_value)
 
 
 class StopRequested(RuntimeError):
     """在网页处理步骤之间收到停止请求。"""
+
+
+class PageSessionExpired(RuntimeError):
+    """StudentAid 页面停留过久后返回 unknown error，需要重新打开页面。"""
+
+
+class PageSubmissionStalled(RuntimeError):
+    """Continue 已提交但站点长时间停在 Loading，需要重建浏览器会话。"""
+
+
+class SiteRateLimitReached(RuntimeError):
+    """StudentAid 已拒绝继续提交；必须保留当前及后续输入资料。"""
 
 
 def _now_iso() -> str:
@@ -165,8 +231,9 @@ def _normalise_year(value: str) -> str:
 
 def _normalise_ssn(value: str) -> str:
     cleaned = value.strip()
-    if re.fullmatch(r"\d+(?:\.0+)?", cleaned):
-        cleaned = str(int(float(cleaned)))
+    # 只移除 Excel 数字单元格常见的 .0 后缀；纯数字文本必须保留前导 0。
+    if re.fullmatch(r"\d+\.0+", cleaned):
+        cleaned = cleaned.split(".", 1)[0]
     digits = re.sub(r"\D", "", cleaned)
     # Excel 把首位 0 当数字格式丢掉时，允许 8 位数字恢复为 9 位。
     if len(digits) == 8:
@@ -423,14 +490,250 @@ def load_input_records(input_path: Path) -> list[ImportedRecord]:
     return records
 
 
-def launch_browser(playwright: Playwright) -> Browser:
-    headless = os.getenv("STUDENTAID_HEADLESS", "").strip().casefold() in {
-        "1", "true", "yes", "on"
-    }
+_SOURCE_FILE_LOCK = threading.RLock()
+
+
+def _normalise_record_key(value: Any) -> str:
+    """输出第一列/输入第一列比较键；SSN 忽略连字符、空格和 Excel .0。"""
+    text = _cell_to_text(value).strip()
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    digits = re.sub(r"\D", "", text)
+    if 8 <= len(digits) <= 9:
+        return digits.zfill(9)
+    return text.casefold()
+
+
+def _detect_text_format(path: Path) -> tuple[str, str, list[list[str]]]:
+    raw = path.read_bytes()
+    encoding = "utf-8-sig"
+    text = ""
+    for candidate in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            text = raw.decode(candidate)
+            encoding = candidate
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise ValueError("文本文件编码无法识别，请另存为 UTF-8")
+    sample = text[:8192]
+    delimiter = ","
     try:
-        return playwright.chromium.launch(channel="chrome", headless=headless)
+        delimiter = csv.Sniffer().sniff(sample, delimiters=",\t;|").delimiter
+    except csv.Error:
+        if "\t" in sample:
+            delimiter = "\t"
+    rows = [list(row) for row in csv.reader(text.splitlines(), delimiter=delimiter)]
+    return encoding, delimiter, rows
+
+
+def read_output_first_column_keys(output_path: Path) -> set[str]:
+    """读取累计输出第一列；空文件或不存在时返回空集合。"""
+    output_path = output_path.resolve()
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        return set()
+    _encoding, _delimiter, rows = _detect_text_format(output_path)
+    return {
+        key for row in rows if row and (key := _normalise_record_key(row[0]))
+        and key not in {"ssn", "socialsecuritynumber", "inputcolumn1"}
+    }
+
+
+def _atomic_write_text_rows(
+    path: Path, rows: Sequence[Sequence[Any]], encoding: str, delimiter: str
+) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding=encoding, newline="") as stream:
+            writer = csv.writer(stream, delimiter=delimiter, lineterminator="\n")
+            writer.writerows(rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def remove_input_rows_by_keys(input_path: Path, keys: set[str]) -> int:
+    """按第一列原子删除输入行；XLSX 保留样式和其他工作表。"""
+    keys = {key for value in keys if (key := _normalise_record_key(value))}
+    if not keys:
+        return 0
+    input_path = input_path.resolve()
+    with _SOURCE_FILE_LOCK:
+        suffix = input_path.suffix.casefold()
+        if suffix in {".csv", ".scv", ".txt"}:
+            encoding, delimiter, rows = _detect_text_format(input_path)
+            kept: list[list[str]] = []
+            removed = 0
+            mapping = _header_mapping(rows[0]) if rows else None
+            for index, row in enumerate(rows):
+                if index == 0 and mapping is not None:
+                    kept.append(row)
+                    continue
+                key = _normalise_record_key(row[0]) if row else ""
+                if key and key in keys:
+                    removed += 1
+                else:
+                    kept.append(row)
+            if removed:
+                _atomic_write_text_rows(input_path, kept, encoding, delimiter)
+            return removed
+
+        if suffix == ".xlsx":
+            try:
+                from openpyxl import load_workbook
+            except ImportError as exc:
+                raise RuntimeError("修改 XLSX 需要安装 openpyxl") from exc
+            workbook = load_workbook(input_path)
+            removed = 0
+            temporary = input_path.with_name(
+                f".{input_path.stem}.{os.getpid()}.{uuid.uuid4().hex}.tmp.xlsx"
+            )
+            try:
+                for worksheet in workbook.worksheets:
+                    header_values = [_cell_to_text(cell.value) for cell in worksheet[1]]
+                    mapping = _header_mapping(header_values)
+                    first_data_row = 2 if mapping is not None else 1
+                    rows_to_delete = []
+                    for row_number in range(first_data_row, worksheet.max_row + 1):
+                        key = _normalise_record_key(worksheet.cell(row_number, 1).value)
+                        if key and key in keys:
+                            rows_to_delete.append(row_number)
+                    for row_number in reversed(rows_to_delete):
+                        worksheet.delete_rows(row_number, 1)
+                    removed += len(rows_to_delete)
+                if removed:
+                    workbook.save(temporary)
+                    workbook.close()
+                    os.replace(temporary, input_path)
+                else:
+                    workbook.close()
+            finally:
+                try:
+                    workbook.close()
+                except Exception:
+                    pass
+                if temporary.exists():
+                    temporary.unlink()
+            return removed
+        raise ValueError("只支持修改 .csv、.scv、.txt 和 .xlsx 输入文件")
+
+
+def _format_output_dob(details: AccountDetails) -> str:
+    return f"{int(details.birth_month):02d}/{int(details.birth_day):02d}/{details.birth_year}"
+
+
+def build_cumulative_output_row(item: WorkItem, result: RecoveryResult) -> list[str]:
+    """生成与实际输出参考一致的 5 个资料列 + 4 个结果列。"""
+    first_column = (
+        item.original_fields[0] if item.original_fields else item.details.original_ssn
+    )
+    return [
+        first_column,
+        _format_output_dob(item.details),
+        item.details.first_name,
+        item.details.last_name,
+        item.address,
+        result.heading,
+        result.masked_phone,
+        result.masked_email,
+        result.recovery_method,
+    ]
+
+
+def append_cumulative_result(
+    output_path: Path, item: WorkItem, result: RecoveryResult
+) -> bool:
+    """实时追加累计结果；第一列已存在时不重复追加。"""
+    output_path = output_path.resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with _SOURCE_FILE_LOCK:
+        existing_keys = read_output_first_column_keys(output_path)
+        if item.record_key and item.record_key in existing_keys:
+            return False
+        with output_path.open("a", encoding="utf-8-sig", newline="") as stream:
+            csv.writer(stream, lineterminator="\n").writerow(
+                build_cumulative_output_row(item, result)
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
+    return True
+
+
+def resolve_output_target(output_target: Path) -> tuple[Path, Path]:
+    """兼容旧版目录参数；GUI 第十步直接选择累计 CSV。"""
+    output_target = output_target.resolve()
+    if output_target.suffix.casefold() in {".csv", ".scv", ".txt"}:
+        return output_target.parent, output_target
+    return output_target, output_target / CUMULATIVE_OUTPUT_FILENAME
+
+
+@dataclass
+class BrowserLaunch:
+    """浏览器启动结果；默认浏览器完全由当前工具拥有。"""
+
+    browser: Browser
+    external_browser: bool
+    mode: str
+    owns_browser: bool = False
+    dedicated_profile: bool = False
+
+
+def _candidate_cdp_urls() -> list[str]:
+    """只返回用户显式指定的 CDP；默认启动本工具独占的真实 Chrome。"""
+    configured = os.getenv("STUDENTAID_CDP_URL", "").strip()
+    if not configured or configured.casefold() in {
+        "off", "none", "disabled", "0", "false"
+    }:
+        return []
+    return [configured.rstrip("/")]
+
+
+def _cdp_endpoint_available(url: str, timeout: float = 1.0) -> bool:
+    try:
+        with urllib.request.urlopen(f"{url}/json/version", timeout=timeout) as response:
+            payload = json.load(response)
+        return bool(payload.get("webSocketDebuggerUrl"))
     except Exception:
-        return playwright.chromium.launch(headless=headless)
+        return False
+
+
+def launch_browser(playwright: Playwright) -> BrowserLaunch:
+    """显式 CDP 优先；默认启动隐藏 AutomationControlled 的真实 Chrome。
+
+    实测旧版 ``playwright.chromium.launch(channel="chrome")`` 会令
+    ``navigator.webdriver`` 为 true，StudentAid 接口随后长期停在 Loading。
+    browser-use 使用的同名 Blink 开关可消除这个差异，同时仍由 Playwright
+    管理独立 BrowserContext，便于彻底清除本批次浏览器数据。
+    """
+    for cdp_url in _candidate_cdp_urls():
+        if not _cdp_endpoint_available(cdp_url):
+            raise RuntimeError(f"无法连接显式指定的 Chrome CDP：{cdp_url}")
+        try:
+            browser = playwright.chromium.connect_over_cdp(cdp_url, timeout=10_000)
+            return BrowserLaunch(browser, True, f"显式共享 Chrome CDP ({cdp_url})")
+        except Exception as exc:
+            raise RuntimeError(f"连接显式指定的 Chrome CDP 失败：{cdp_url}") from exc
+    try:
+        browser = playwright.chromium.launch(
+            channel="chrome",
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "无法启动 Google Chrome。请双击一键启动 CMD 自动检查并安装 Chrome。"
+        ) from exc
+    return BrowserLaunch(
+        browser,
+        False,
+        "独立 Google Chrome（AutomationControlled 已关闭）",
+        owns_browser=True,
+        dedicated_profile=True,
+    )
 
 
 def _check_stop(stop_event: threading.Event) -> None:
@@ -441,61 +744,202 @@ def _check_stop(stop_event: threading.Event) -> None:
 def step_1_open_retrieve_account_details(
     page: Page, stop_event: threading.Event
 ) -> None:
-    _check_stop(stop_event)
-    page.goto(
-        RETRIEVE_ACCOUNT_DETAILS_URL,
-        wait_until="domcontentloaded",
-        timeout=60_000,
-    )
-    _check_stop(stop_event)
-    page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=60_000)
+    last_error: BaseException | None = None
+    for attempt in range(1, 4):
+        _check_stop(stop_event)
+        try:
+            page.goto(
+                RETRIEVE_ACCOUNT_DETAILS_URL,
+                wait_until="load",
+                timeout=60_000,
+            )
+            _check_stop(stop_event)
+            page.locator(FIRST_NAME_SELECTOR).wait_for(
+                state="visible", timeout=60_000
+            )
+            page.wait_for_function(
+                """
+                () => {
+                    const text = document.body?.innerText || "";
+                    return !text.includes("Loading...")
+                        && !!document.querySelector("#fsa_Input_ForgotUsernameLastName")
+                        && !!document.querySelector("#fsa_Input_ForgotUsernameDateOfBirthMonth")
+                        && !!document.querySelector("#fsa_Input_ForgotUsernameSsnInput");
+                }
+                """,
+                timeout=30_000,
+            )
+            return
+        except StopRequested:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt >= 3:
+                break
+            page.wait_for_timeout(1_500 * attempt)
+    raise RuntimeError(
+        "StudentAid 页面连续 3 次无法打开；请先在 Chrome 中确认页面可访问，"
+        "或设置 STUDENTAID_CDP_URL 复用已打开的 Chrome。"
+    ) from last_error
+
+
+def _type_account_field(page: Page, selector: str, value: str) -> None:
+    """用真实键盘事件输入并失焦，确保 StudentAid 前端状态完整更新。"""
+    field = page.locator(selector)
+    field.click(timeout=30_000)
+    field.fill("")
+    field.press_sequentially(value, delay=60)
+    field.press("Tab")
 
 
 def step_2_fill_account_details(
     page: Page, details: AccountDetails, stop_event: threading.Event
 ) -> None:
     _check_stop(stop_event)
-    page.locator(FIRST_NAME_SELECTOR).fill(details.first_name)
-    page.locator(LAST_NAME_SELECTOR).fill(details.last_name)
+    _type_account_field(page, FIRST_NAME_SELECTOR, details.first_name)
+    _type_account_field(page, LAST_NAME_SELECTOR, details.last_name)
     page.locator(BIRTH_MONTH_SELECTOR).select_option(details.birth_month)
-    page.locator(BIRTH_DAY_SELECTOR).fill(str(int(details.birth_day)))
-    page.locator(BIRTH_YEAR_SELECTOR).fill(details.birth_year)
-    page.locator(SSN_SELECTOR).fill(details.ssn)
-
-
-def step_3_click_continue(page: Page, stop_event: threading.Event) -> None:
-    _check_stop(stop_event)
-    continue_element = page.get_by_text("Continue", exact=True).first
-    continue_element.wait_for(state="visible", timeout=30_000)
-    continue_element.click(timeout=30_000)
-
-
-def step_4_judge_password_recovery(
-    page: Page, stop_event: threading.Event
-) -> str:
+    page.locator(BIRTH_MONTH_SELECTOR).press("Tab")
+    _type_account_field(page, BIRTH_DAY_SELECTOR, str(int(details.birth_day)))
+    _type_account_field(page, BIRTH_YEAR_SELECTOR, details.birth_year)
+    _type_account_field(page, SSN_SELECTOR, details.ssn)
     _check_stop(stop_event)
     page.wait_for_function(
         """
         () => {
-            const text = document.body?.innerText || "";
-            return text.includes("Retrieve Your Log-in Information")
-                || text.includes("Account Not Found");
+            const selectors = [
+                "#fsa_Input_ForgotUsernameFirstName",
+                "#fsa_Input_ForgotUsernameLastName",
+                "#fsa_Input_ForgotUsernameDateOfBirthMonth",
+                "#fsa_Input_ForgotUsernameDateOfBirthDay",
+                "#fsa_Input_ForgotUsernameDateOfBirthYear",
+                "#fsa_Input_ForgotUsernameSsnInput",
+            ];
+            const button = [...document.querySelectorAll("button")].find(
+                element => (element.innerText || "").trim() === "Continue"
+            );
+            return selectors.every(selector => {
+                const field = document.querySelector(selector);
+                return field && String(field.value || "").length > 0;
+            }) && button && !button.disabled;
         }
         """,
         timeout=30_000,
     )
+    page.wait_for_timeout(500)
+
+
+def step_3_click_continue(page: Page, stop_event: threading.Event) -> None:
+    """使用与 browser-use 一致的真实坐标鼠标点击并确认提交已启动。"""
     _check_stop(stop_event)
-    account_not_found = page.get_by_text(
-        re.compile(
-            r"^\s*Account Not Found(?:\s*:\s*Create a New Account)?\s*$",
-            re.IGNORECASE,
+    continue_element = page.get_by_role("button", name="Continue", exact=True).first
+    continue_element.wait_for(state="visible", timeout=30_000)
+    if not continue_element.is_enabled():
+        raise RuntimeError("Continue 按钮未启用，请检查字段输入状态")
+    box = continue_element.bounding_box()
+    if not box:
+        raise RuntimeError("无法取得 Continue 按钮可见坐标")
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    try:
+        page.wait_for_function(
+            """
+            () => {
+                const text = document.body?.innerText || "";
+                return text.includes("Loading...")
+                    || text.includes("Account Not Found")
+                    || text.includes("Recover my account with a photo ID")
+                    || text.includes("An unknown error has occurred")
+                    || location.pathname.endsWith("/username");
+            }
+            """,
+            timeout=5_000,
         )
-    ).first
-    if account_not_found.is_visible():
-        return "account_not_found"
-    if page.get_by_text("Retrieve Your Log-in Information", exact=True).first.is_visible():
-        return "can_recover"
-    return "unknown"
+    except Exception as exc:
+        raise PageSubmissionStalled(
+            "点击 Continue 后页面没有进入 Loading 或结果状态"
+        ) from exc
+
+
+def _report_stage(
+    progress_callback: Callable[[str], None] | None, message: str
+) -> None:
+    """发送不包含输入资料的阶段消息；UI 回调失败不能中断网页处理。"""
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(message)
+    except Exception:
+        pass
+
+
+def step_4_judge_password_recovery(
+    page: Page,
+    stop_event: threading.Event,
+    progress_callback: Callable[[str], None] | None = None,
+    *,
+    timeout_ms: int = 45_000,
+    poll_interval_ms: int = 125,
+    heartbeat_seconds: float = 5.0,
+    stalled_loading_seconds: float = 20.0,
+) -> str:
+    """等待明确页面结果；持续 Loading 会触发重建会话，而不是无限转圈。"""
+    started = time.monotonic()
+    deadline = started + max(1, timeout_ms) / 1000
+    next_heartbeat = max(0.05, heartbeat_seconds)
+    loading_started: float | None = None
+
+    while True:
+        _check_stop(stop_event)
+        body_text = page.evaluate("document.body?.innerText || ''")
+        loading = "Loading..." in body_text
+        now = time.monotonic()
+        if loading:
+            loading_started = loading_started or now
+            if now - loading_started >= stalled_loading_seconds:
+                raise PageSubmissionStalled(
+                    f"点击 Continue 后 Loading 已持续 {int(now - loading_started)} 秒"
+                )
+        else:
+            loading_started = None
+            if "An unknown error has occurred" in body_text:
+                raise PageSessionExpired(
+                    "StudentAid 页面会话已失效，需要重新打开页面"
+                )
+            if "Something went wrong" in body_text:
+                raise RuntimeError("StudentAid 返回页面错误，请稍后重试")
+            if "Limit Reached: Try Again in 24 Hours" in body_text:
+                raise SiteRateLimitReached(
+                    "StudentAid 已达到九次找回上限，请按页面提示 24 小时后再试"
+                )
+            if re.search(
+                r"^\s*Account Not Found(?:\s*:\s*Create a New Account)?\s*$",
+                body_text,
+                re.IGNORECASE | re.MULTILINE,
+            ):
+                _report_stage(progress_callback, "已识别结果：Account Not Found")
+                return "account_not_found"
+            if (
+                "Retrieve Your Log-in Information" in body_text
+                and "Recover my account with a photo ID" in body_text
+            ):
+                _report_stage(progress_callback, "已识别结果：Retrieve Your Log-in Information")
+                return "can_recover"
+
+        elapsed = now - started
+        if now >= deadline:
+            raise RuntimeError(
+                f"等待 StudentAid 明确结果超时（{timeout_ms / 1000:g} 秒）"
+            )
+        if elapsed >= next_heartbeat:
+            _report_stage(
+                progress_callback,
+                f"官方页面仍在处理中，已等待 {int(elapsed)} 秒",
+            )
+            while next_heartbeat <= elapsed:
+                next_heartbeat += max(0.05, heartbeat_seconds)
+        page.wait_for_timeout(
+            min(poll_interval_ms, max(1, int((deadline - now) * 1000)))
+        )
 
 
 def _visible_text(page: Page, text: str) -> str:
@@ -517,14 +961,13 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
     heading = _visible_text(page, "Retrieve Your Log-in Information")
     masked_phone = ""
     masked_email = ""
-    for text in page.locator("p:visible").all_inner_texts():
-        value = text.strip()
+    for value in (line.strip() for line in page.locator("body").inner_text().splitlines()):
         if not value:
             continue
         if "@" in value and not masked_email:
             masked_email = value
-        elif re.search(r"\d{4}\s*$", value) and not masked_phone:
-            masked_phone = value
+        elif ("*" in value or "•" in value) and re.search(r"\d{4}\s*$", value):
+            masked_phone = masked_phone or value
     recovery_method = _visible_text(page, "Recover my account with a photo ID")
     return RecoveryResult(
         recovery_status,
@@ -536,55 +979,268 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
 
 
 class BrowserRecoverySession:
-    """一个处理线程独占一个 Playwright 和 Browser，避免跨线程共享。"""
+    """第十步顺序复用一个页面；避免共享 CDP 并发状态互相干扰。"""
 
     def __init__(self, worker_number: int) -> None:
         self.worker_number = worker_number
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
+        self._context: Any = None
+        self._page: Page | None = None
+        self._owns_context = False
+        self._external_browser = False
+        self._owns_browser = False
+        self._dedicated_profile = False
+        self.browser_mode = "未启动"
 
     def start(self) -> None:
         if sync_playwright is None:
             raise RuntimeError(
-                "未安装 playwright，请执行：pip install playwright && playwright install chromium"
+                "未安装 playwright，请双击一键启动 CMD，或执行：pip install -r requirements.txt"
             )
         self._playwright = sync_playwright().start()
-        self._browser = launch_browser(self._playwright)
+        try:
+            launch = launch_browser(self._playwright)
+            self._browser = launch.browser
+            self._external_browser = launch.external_browser
+            self._owns_browser = launch.owns_browser
+            self._dedicated_profile = launch.dedicated_profile
+            self.browser_mode = launch.mode
+            browser_contexts = list(getattr(self._browser, "contexts", []))
+            if self._external_browser:
+                if not browser_contexts:
+                    raise RuntimeError("Chrome CDP 没有可用的默认浏览器上下文")
+                self._context = browser_contexts[0]
+            else:
+                self._context = self._browser.new_context(
+                    viewport={"width": 1440, "height": 900}, locale="en-US"
+                )
+                self._owns_context = True
+            pages = list(getattr(self._context, "pages", []))
+            self._page = pages[-1] if pages else self._context.new_page()
+            if self._page.evaluate("navigator.webdriver === true"):
+                raise RuntimeError(
+                    "检测到浏览器处于 Playwright 自动化启动模式；"
+                    "该模式会让 StudentAid 在 Continue 后持续 Loading"
+                )
+            if self._dedicated_profile:
+                # 上次进程若被强制关闭，先消除可能残留的 cookie、cache 和 storage。
+                self._clear_browser_data_and_blank()
+        except Exception:
+            self.close()
+            raise
+
+    def _close_page(self) -> None:
+        if self._page is not None:
+            try:
+                if not self._page.is_closed():
+                    self._page.close()
+            except Exception:
+                pass
+            self._page = None
+
+    def _new_blank_page(self) -> Page:
+        if self._context is None:
+            raise RuntimeError("浏览器处理会话尚未启动")
+        self._close_page()
+        self._page = self._context.new_page()
+        return self._page
+
+    def _ensure_form_page(
+        self,
+        stop_event: threading.Event,
+        progress_callback: Callable[[str], None] | None,
+    ) -> Page:
+        page = self._page
+        if page is None or page.is_closed():
+            page = self._new_blank_page()
+        form_ready = False
+        try:
+            form_ready = bool(
+                page.locator(FIRST_NAME_SELECTOR).is_visible(timeout=1_000)
+                and "Loading..." not in page.locator("body").inner_text(timeout=1_000)
+            )
+        except Exception:
+            form_ready = False
+        if not form_ready:
+            _report_stage(progress_callback, "正在打开 StudentAid 页面")
+            step_1_open_retrieve_account_details(page, stop_event)
+        return page
+
+    def _clear_browser_data_and_blank(
+        self,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
+        page = self._page
+        if page is None or page.is_closed():
+            page = self._new_blank_page()
+        _report_stage(progress_callback, "正在清除 StudentAid 专用浏览器数据")
+        origins = {"https://studentaid.gov"}
+        try:
+            discovered = page.evaluate(
+                """
+                () => [...new Set([
+                    location.origin,
+                    ...performance.getEntriesByType("resource").map(entry => {
+                        try { return new URL(entry.name).origin; }
+                        catch (_) { return ""; }
+                    })
+                ])]
+                """
+            )
+            origins.update(
+                origin for origin in discovered
+                if isinstance(origin, str)
+                and re.fullmatch(r"https://(?:[a-z0-9-]+\.)*studentaid\.gov", origin)
+            )
+        except Exception:
+            pass
+        try:
+            session = self._context.new_cdp_session(page)
+            try:
+                session.send("Network.clearBrowserCache")
+                if self._dedicated_profile:
+                    session.send("Network.clearBrowserCookies")
+                try:
+                    session.send("ServiceWorker.stopAllWorkers")
+                except Exception:
+                    pass
+                for origin in origins:
+                    session.send(
+                        "Storage.clearDataForOrigin",
+                        {"origin": origin, "storageTypes": "all"},
+                    )
+            finally:
+                try:
+                    session.detach()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        if self._dedicated_profile:
+            try:
+                self._context.clear_cookies()
+            except Exception:
+                pass
+        self._new_blank_page()
+        _report_stage(progress_callback, "浏览器数据已清除，已回到空白页")
 
     def process(
-        self, item: WorkItem, stop_event: threading.Event
+        self,
+        item: WorkItem,
+        stop_event: threading.Event,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> RecoveryResult:
         if self._browser is None:
             raise RuntimeError("浏览器处理会话尚未启动")
-        context = self._browser.new_context(
-            viewport={"width": 1440, "height": 900},
-            locale="en-US",
-        )
-        page = context.new_page()
+        last_error: BaseException | None = None
+        for attempt in range(1, 4):
+            try:
+                page = self._ensure_form_page(stop_event, progress_callback)
+                if attempt > 1:
+                    _report_stage(
+                        progress_callback,
+                        f"已重建页面会话，正在重新填写资料（自动重试 {attempt - 1}/2）",
+                    )
+                else:
+                    _report_stage(progress_callback, "页面已打开，正在填写资料")
+                step_2_fill_account_details(page, item.details, stop_event)
+                _report_stage(progress_callback, "资料已填写，正在点击 Continue")
+                step_3_click_continue(page, stop_event)
+                _report_stage(progress_callback, "已提交，正在等待官方结果")
+                status = step_4_judge_password_recovery(
+                    page, stop_event, progress_callback
+                )
+                return collect_recovery_result(page, status)
+            except StopRequested:
+                raise
+            except (PageSessionExpired, PageSubmissionStalled) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                _report_stage(
+                    progress_callback,
+                    "页面会话失效或提交持续转圈，正在自动清理并重建页面",
+                )
+                self._clear_browser_data_and_blank(progress_callback)
+        raise RuntimeError(
+            "StudentAid 页面清理并重填后仍未返回明确结果"
+        ) from last_error
+
+    def prepare_for_next(
+        self,
+        result_code: str,
+        stop_event: threading.Event,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
+        """必须在结果写入 SQLite/累计 CSV 后调用。"""
+        _check_stop(stop_event)
+        page = self._page
+        if result_code == "account_not_found":
+            self._clear_browser_data_and_blank(progress_callback)
+            return
+        if result_code != "can_recover":
+            self._close_page()
+            return
+        if page is None or page.is_closed():
+            raise RuntimeError("记录账户找回结果后页面已关闭，无法点击 Cancel")
+        _report_stage(progress_callback, "结果已保存，正在点击 Cancel")
+        cancel = page.locator("#fsa_Button_ForgotUsernameCancel").first
         try:
-            step_1_open_retrieve_account_details(page, stop_event)
-            step_2_fill_account_details(page, item.details, stop_event)
-            step_3_click_continue(page, stop_event)
-            status = step_4_judge_password_recovery(page, stop_event)
-            if status == "unknown":
-                raise RuntimeError("暂未识别页面结果")
-            return collect_recovery_result(page, status)
-        finally:
-            context.close()
+            cancel.wait_for(state="visible", timeout=5_000)
+        except Exception:
+            cancel = page.get_by_role("button", name="Cancel", exact=True).first
+            cancel.wait_for(state="visible", timeout=10_000)
+        box = cancel.bounding_box()
+        if not box:
+            raise RuntimeError("无法取得 Cancel 按钮可见坐标")
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=30_000)
+        page.wait_for_function(
+            """
+            () => {
+                const ids = [
+                    "#fsa_Input_ForgotUsernameFirstName",
+                    "#fsa_Input_ForgotUsernameLastName",
+                    "#fsa_Input_ForgotUsernameDateOfBirthMonth",
+                    "#fsa_Input_ForgotUsernameDateOfBirthDay",
+                    "#fsa_Input_ForgotUsernameDateOfBirthYear",
+                    "#fsa_Input_ForgotUsernameSsnInput",
+                ];
+                return ids.every(id => !(document.querySelector(id)?.value || ""));
+            }
+            """,
+            timeout=15_000,
+        )
+        _report_stage(progress_callback, "Cancel 已完成，空白表单已就绪")
+
+    def recover_after_cleanup_error(self) -> None:
+        self._close_page()
 
     def close(self) -> None:
-        if self._browser is not None:
+        self._close_page()
+        if self._context is not None and self._owns_context:
+            try:
+                self._context.close()
+            except Exception:
+                pass
+        self._context = None
+        self._owns_context = False
+        if self._browser is not None and self._owns_browser:
             try:
                 self._browser.close()
             except Exception:
                 pass
-            self._browser = None
+        self._browser = None
+        self._external_browser = False
+        self._owns_browser = False
         if self._playwright is not None:
             try:
                 self._playwright.stop()
             except Exception:
                 pass
             self._playwright = None
+        self._dedicated_profile = False
 
 
 @dataclass
@@ -773,7 +1429,13 @@ class DatabaseWriter:
                     ),
                 )
                 if details is not None and not record.import_error:
-                    work_items.append(WorkItem(int(cursor.lastrowid), details))
+                    work_items.append(
+                        WorkItem(
+                            int(cursor.lastrowid), details, record.source_file,
+                            record.source_sheet, record.source_row,
+                            record.original_fields, record.address,
+                        )
+                    )
             connection.execute(
                 """
                 UPDATE batches SET status='running', total_count=? WHERE batch_id=?
@@ -923,7 +1585,7 @@ SessionFactory = Callable[[int], Any]
 
 
 class BatchEngine:
-    """负责导入、排队、并发处理、单线程写库和最终导出。"""
+    """第十步严格顺序处理：结果落盘后再清理页面并删除输入行。"""
 
     def __init__(
         self,
@@ -942,15 +1604,16 @@ class BatchEngine:
         with self._state_lock:
             return self._running
 
-    def start(self, input_path: Path, output_directory: Path, thread_count: int) -> None:
+    def start(self, input_path: Path, output_target: Path, thread_count: int = 1) -> None:
         input_path = input_path.resolve()
-        output_directory = output_directory.resolve()
+        output_directory, output_path = resolve_output_target(output_target)
         if not input_path.is_file():
             raise FileNotFoundError(f"输入文件不存在：{input_path}")
-        if not 1 <= thread_count <= 64:
-            raise ValueError("线程数必须是 1-64")
+        if input_path == output_path:
+            raise ValueError("输入文件和累计输出文件不能是同一个文件")
+        if thread_count < 1:
+            raise ValueError("处理线程数必须至少为 1")
         output_directory.mkdir(parents=True, exist_ok=True)
-
         with self._state_lock:
             if self._running:
                 raise RuntimeError("已有批次正在运行")
@@ -958,7 +1621,7 @@ class BatchEngine:
         self._stop_event.clear()
         self._coordinator = threading.Thread(
             target=self._run,
-            args=(input_path, output_directory, thread_count),
+            args=(input_path, output_path),
             name="studentaid-coordinator",
             daemon=False,
         )
@@ -967,7 +1630,7 @@ class BatchEngine:
     def stop(self) -> None:
         if self.is_running:
             self._stop_event.set()
-            self._emit("log", message="已收到停止请求；正在结束当前步骤并停止领取新任务。")
+            self._emit("log", message="已收到停止请求；正在结束当前步骤。")
 
     def wait(self, timeout: float | None = None) -> bool:
         coordinator = self._coordinator
@@ -996,82 +1659,30 @@ class BatchEngine:
         self._emit("progress", **payload)
         return payload
 
-    def _worker_loop(
-        self,
-        worker_number: int,
-        tasks: queue.Queue[WorkItem | None],
-        writer: DatabaseWriter,
-        batch_id: str,
-        total: int,
-    ) -> None:
-        session = self._session_factory(worker_number)
-        try:
-            session.start()
-            self._emit("log", message=f"处理线程 {worker_number} 已启动。")
-        except Exception as exc:
-            self._emit(
-                "log",
-                message=f"处理线程 {worker_number} 启动失败：{_clean_error(exc)}",
-            )
-            try:
-                session.close()
-            except Exception:
-                pass
-            return
-
-        try:
-            while True:
-                try:
-                    item = tasks.get(timeout=0.2)
-                except queue.Empty:
-                    if self._stop_event.is_set():
-                        break
-                    continue
-                if item is None:
-                    tasks.task_done()
-                    break
-                if self._stop_event.is_set():
-                    tasks.task_done()
-                    break
-
-                writer.request("mark_processing", record_id=item.record_id)
-                self._publish_progress(writer, batch_id, total)
-                try:
-                    result = session.process(item, self._stop_event)
-                    writer.request(
-                        "mark_completed", record_id=item.record_id, result=result
-                    )
-                except StopRequested as exc:
-                    writer.request(
-                        "mark_stopped", record_id=item.record_id, error=_clean_error(exc)
-                    )
-                except Exception as exc:
-                    writer.request(
-                        "mark_failed", record_id=item.record_id, error=_clean_error(exc)
-                    )
-                    self._emit(
-                        "log",
-                        message=f"记录 #{item.record_id} 处理失败：{_clean_error(exc)}",
-                    )
-                finally:
-                    tasks.task_done()
-                    self._publish_progress(writer, batch_id, total)
-                if self._stop_event.is_set():
-                    break
-        finally:
-            session.close()
-            self._emit("log", message=f"处理线程 {worker_number} 已结束。")
-
-    def _run(
-        self, input_path: Path, output_directory: Path, thread_count: int
-    ) -> None:
+    def _run(self, input_path: Path, output_path: Path) -> None:
         batch_id = uuid.uuid4().hex
+        output_directory = output_path.parent
         database_path = output_directory / DATABASE_FILENAME
         writer: DatabaseWriter | None = None
-        export_path: Path | None = None
+        session: Any = None
+        total = 0
+        rate_limit_error = ""
         try:
-            self._emit("log", message="正在读取并校验输入文件……")
-            records = load_input_records(input_path)
+            self._emit("log", message="正在读取累计输出第一列并同步输入文件……")
+            existing_keys = read_output_first_column_keys(output_path)
+            removed_before_start = remove_input_rows_by_keys(input_path, existing_keys)
+            if removed_before_start:
+                self._emit(
+                    "log",
+                    message=f"输入文件已删除 {removed_before_start} 条输出中已存在的资料。",
+                )
+            try:
+                records = load_input_records(input_path)
+            except ValueError as exc:
+                if "没有可导入的资料行" not in str(exc):
+                    raise
+                records = []
+            total = len(records)
             if self._stop_event.is_set():
                 raise StopRequested("导入阶段已停止")
 
@@ -1082,7 +1693,7 @@ class BatchEngine:
                 batch_id=batch_id,
                 input_path=str(input_path),
                 output_directory=str(output_directory),
-                thread_count=thread_count,
+                thread_count=1,
             )
             work_items: list[WorkItem] = writer.request(
                 "insert_records", batch_id=batch_id, records=records
@@ -1091,58 +1702,143 @@ class BatchEngine:
             self._emit(
                 "log",
                 message=(
-                    f"已导入 {len(records)} 条资料到 SQLite；"
-                    f"可处理 {len(work_items)} 条，格式错误 {invalid_count} 条。"
+                    f"输入剩余 {len(records)} 条；可处理 {len(work_items)} 条，"
+                    f"格式错误 {invalid_count} 条。第十步固定顺序处理。"
                 ),
             )
-            self._publish_progress(writer, batch_id, len(records))
+            self._publish_progress(writer, batch_id, total)
 
-            tasks: queue.Queue[WorkItem | None] = queue.Queue()
-            for item in work_items:
-                tasks.put(item)
-            for _ in range(thread_count):
-                tasks.put(None)
-
-            workers = [
-                threading.Thread(
-                    target=self._worker_loop,
-                    args=(number, tasks, writer, batch_id, len(records)),
-                    name=f"studentaid-worker-{number}",
-                    daemon=False,
+            if work_items:
+                session = self._session_factory(1)
+                session.start()
+                self._emit(
+                    "log",
+                    message=f"浏览器已启动：{getattr(session, 'browser_mode', '模式未知')}。",
                 )
-                for number in range(1, thread_count + 1)
-            ] if work_items else []
-            for worker in workers:
-                worker.start()
-            for worker in workers:
-                worker.join()
 
-            if self._stop_event.is_set():
+            for item in work_items:
+                if self._stop_event.is_set():
+                    break
+                writer.request("mark_processing", record_id=item.record_id)
+                self._publish_progress(writer, batch_id, total)
+                progress = lambda stage, record_id=item.record_id: self._emit(
+                    "log", message=f"记录 #{record_id}：{stage}"
+                )
+                try:
+                    result = session.process(item, self._stop_event, progress)
+                    writer.request(
+                        "mark_completed", record_id=item.record_id, result=result
+                    )
+                    self._emit(
+                        "log",
+                        message=f"记录 #{item.record_id}：明确结果已实时写入 SQLite。",
+                    )
+                    appended = append_cumulative_result(output_path, item, result)
+                    if appended:
+                        self._emit(
+                            "log",
+                            message=f"记录 #{item.record_id}：已实时追加到累计输出 CSV。",
+                        )
+                    else:
+                        self._emit(
+                            "log",
+                            message=f"记录 #{item.record_id}：累计输出第一列已存在，跳过重复追加。",
+                        )
+                    deleted = remove_input_rows_by_keys(input_path, {item.record_key})
+                    self._emit(
+                        "log",
+                        message=(
+                            f"记录 #{item.record_id}：明确结果已落盘，"
+                            f"输入文件已删除 {deleted} 条匹配资料。"
+                        ),
+                    )
+                    try:
+                        prepare = getattr(session, "prepare_for_next", None)
+                        if callable(prepare):
+                            prepare(result.result_code, self._stop_event, progress)
+                    except StopRequested:
+                        self._emit(
+                            "log",
+                            message=(
+                                f"记录 #{item.record_id}：结果已安全保存；"
+                                "收到停止请求，跳过下一页准备。"
+                            ),
+                        )
+                    except Exception as cleanup_exc:
+                        self._emit(
+                            "log",
+                            message=(
+                                f"记录 #{item.record_id}：结果已安全保存；"
+                                f"页面清理失败，将为下一条重建页面：{_clean_error(cleanup_exc)}"
+                            ),
+                        )
+                        recover = getattr(session, "recover_after_cleanup_error", None)
+                        if callable(recover):
+                            recover()
+                except StopRequested as exc:
+                    writer.request(
+                        "mark_stopped", record_id=item.record_id, error=_clean_error(exc)
+                    )
+                    break
+                except SiteRateLimitReached as exc:
+                    rate_limit_error = _clean_error(exc)
+                    writer.request(
+                        "mark_failed", record_id=item.record_id, error=rate_limit_error
+                    )
+                    self._emit(
+                        "log",
+                        message=(
+                            f"记录 #{item.record_id}：{rate_limit_error}；"
+                            "当前及后续输入资料全部保留。"
+                        ),
+                    )
+                    break
+                except Exception as exc:
+                    writer.request(
+                        "mark_failed", record_id=item.record_id, error=_clean_error(exc)
+                    )
+                    self._emit(
+                        "log",
+                        message=f"记录 #{item.record_id} 处理失败：{_clean_error(exc)}",
+                    )
+                    recover = getattr(session, "recover_after_cleanup_error", None)
+                    if callable(recover):
+                        try:
+                            recover()
+                        except Exception:
+                            pass
+                finally:
+                    self._publish_progress(writer, batch_id, total)
+
+            if rate_limit_error:
+                writer.request(
+                    "mark_remaining", batch_id=batch_id, status="stopped",
+                    error=rate_limit_error,
+                )
+                batch_status = "rate_limited"
+            elif self._stop_event.is_set():
                 writer.request(
                     "mark_remaining", batch_id=batch_id, status="stopped",
                     error="用户停止，任务尚未处理",
                 )
                 batch_status = "stopped"
             else:
-                # 浏览器线程全部启动失败时，不能让 pending 永久悬空。
                 writer.request(
                     "mark_remaining", batch_id=batch_id, status="failed",
-                    error="没有可用的处理线程完成此任务",
+                    error="任务未被浏览器处理",
                 )
                 batch_status = "completed"
-
-            final_counts = self._publish_progress(writer, batch_id, len(records))
-            export_path = export_batch_csv(database_path, batch_id, output_directory)
+            final_counts = self._publish_progress(writer, batch_id, total)
             writer.request(
                 "finish_batch", batch_id=batch_id, status=batch_status,
-                export_path=str(export_path),
+                export_path=str(output_path),
             )
             writer.request("checkpoint")
             self._emit(
                 "finished",
                 batch_id=batch_id,
                 database_path=str(database_path),
-                export_path=str(export_path),
+                export_path=str(output_path),
                 status=batch_status,
                 counts=final_counts,
             )
@@ -1152,10 +1848,15 @@ class BatchEngine:
             self._emit(
                 "fatal",
                 message=_clean_error(exc),
-                details=traceback.format_exc(limit=6),
+                details=traceback.format_exc(limit=8),
                 stopped=False,
             )
         finally:
+            if session is not None:
+                try:
+                    session.close()
+                except Exception as exc:
+                    self._emit("log", message=f"关闭浏览器时出错：{_clean_error(exc)}")
             if writer is not None:
                 try:
                     writer.close()
@@ -1163,11 +1864,11 @@ class BatchEngine:
                     self._emit("log", message=f"关闭数据库时出错：{_clean_error(exc)}")
             with self._state_lock:
                 self._running = False
-            self._emit("idle", export_path=str(export_path or ""))
+            self._emit("idle", export_path=str(output_path))
 
 
 class StudentAidApp:
-    """第七步桌面 GUI。"""
+    """第十步稳定版桌面 GUI。"""
 
     def __init__(self) -> None:
         import tkinter as tk
@@ -1183,8 +1884,8 @@ class StudentAidApp:
         self.root.minsize(820, 570)
 
         self.input_var = tk.StringVar()
-        self.output_var = tk.StringVar(value=str(Path.cwd()))
-        self.thread_var = tk.StringVar(value=str(min(4, max(1, os.cpu_count() or 1))))
+        self.output_var = tk.StringVar(value=str(Path.cwd() / CUMULATIVE_OUTPUT_FILENAME))
+        self.thread_var = tk.StringVar(value="1")
         self.status_var = tk.StringVar(value="就绪")
         self.progress_text_var = tk.StringVar(value="总数 0 | 完成 0 | 失败 0 | 停止 0")
         self._ui_events: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue()
@@ -1208,18 +1909,18 @@ class StudentAidApp:
         self.input_button = ttk.Button(main, text="选择文件", command=self._choose_input)
         self.input_button.grid(row=0, column=2, pady=6)
 
-        ttk.Label(main, text="导出目录：").grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Label(main, text="累计输出 CSV：").grid(row=1, column=0, sticky="w", pady=6)
         self.output_entry = ttk.Entry(main, textvariable=self.output_var)
         self.output_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=6)
-        self.output_button = ttk.Button(main, text="选择目录", command=self._choose_output)
+        self.output_button = ttk.Button(main, text="选择文件", command=self._choose_output)
         self.output_button.grid(row=1, column=2, pady=6)
 
         ttk.Label(main, text="处理线程数：").grid(row=2, column=0, sticky="w", pady=6)
         self.thread_spin = ttk.Spinbox(
-            main, from_=1, to=64, textvariable=self.thread_var, width=10
+            main, from_=1, to=1, textvariable=self.thread_var, width=10, state="readonly"
         )
         self.thread_spin.grid(row=2, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(main, text="每个线程使用独立浏览器；建议先用 2-4。")\
+        ttk.Label(main, text="第十步固定单线程顺序处理，避免浏览器会话互相污染。")\
             .grid(row=2, column=1, sticky="w", padx=(100, 0), pady=6)
 
         button_bar = ttk.Frame(main)
@@ -1261,11 +1962,19 @@ class StudentAidApp:
         )
         if path:
             self.input_var.set(path)
-            if not self.output_var.get().strip():
-                self.output_var.set(str(Path(path).parent))
+            current = self.output_var.get().strip()
+            if not current or current == str(Path.cwd() / CUMULATIVE_OUTPUT_FILENAME):
+                self.output_var.set(str(Path(path).parent / CUMULATIVE_OUTPUT_FILENAME))
 
     def _choose_output(self) -> None:
-        path = self.filedialog.askdirectory(title="选择导出目录")
+        current = Path(self.output_var.get().strip() or CUMULATIVE_OUTPUT_FILENAME)
+        path = self.filedialog.asksaveasfilename(
+            title="选择累计输出 CSV（已有文件会继续叠加）",
+            initialdir=str(current.parent),
+            initialfile=current.name,
+            defaultextension=".csv",
+            filetypes=[("CSV 文件", "*.csv"), ("所有文件", "*.*")],
+        )
         if path:
             self.output_var.set(path)
 
@@ -1282,9 +1991,9 @@ class StudentAidApp:
     def _start(self) -> None:
         try:
             input_path = Path(self.input_var.get().strip())
-            output_directory = Path(self.output_var.get().strip())
+            output_target = Path(self.output_var.get().strip())
             thread_count = int(self.thread_var.get().strip())
-            self.engine.start(input_path, output_directory, thread_count)
+            self.engine.start(input_path, output_target, thread_count)
         except Exception as exc:
             self.messagebox.showerror(APP_TITLE, _clean_error(exc))
             return
@@ -1331,12 +2040,22 @@ class StudentAidApp:
                 elif kind == "finished":
                     output_path = str(payload.get("export_path", ""))
                     database_path = str(payload.get("database_path", ""))
-                    self.status_var.set("已停止" if payload.get("status") == "stopped" else "已完成")
-                    self._append_log(f"CSV 已导出：{output_path}")
+                    counts = payload.get("counts", {})
+                    failed = int(counts.get("failed", 0)) if isinstance(counts, dict) else 0
+                    if payload.get("status") == "rate_limited":
+                        display_status = "站点限制（资料已保留）"
+                    elif payload.get("status") == "stopped":
+                        display_status = "已停止"
+                    elif failed:
+                        display_status = "完成（有失败）"
+                    else:
+                        display_status = "已完成"
+                    self.status_var.set(display_status)
+                    self._append_log(f"累计 CSV：{output_path}")
                     self._append_log(f"SQLite 数据库：{database_path}")
                     self.messagebox.showinfo(
                         APP_TITLE,
-                        f"批次处理结束。\n\nCSV：{output_path}\n数据库：{database_path}",
+                        f"批次处理结束。\n\n累计 CSV：{output_path}\n数据库：{database_path}",
                     )
                 elif kind == "fatal":
                     message = str(payload.get("message", "未知错误"))
