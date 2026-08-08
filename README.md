@@ -4,7 +4,9 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式入口是 `ait10.py`；推荐双击 `启动StudentAid第十五步批量输入兼容版.cmd`。
+正式源码入口是 `ait10.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
+
+源码运行仍可双击 `启动StudentAid第十五步批量输入兼容版.cmd`。
 
 ## 第十五步完成内容
 

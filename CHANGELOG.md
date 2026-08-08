@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.10.1-step15-windows-standalone — 2026-08-08
+
+### Windows 独立 EXE
+
+- 基于已验证的 `ait10.py` 打包为 64 位单文件 `StudentAid-Batch-Tool.exe`，目标电脑不需要安装 Python、Playwright、openpyxl 或 browser-use。
+- EXE 内置 Tkinter GUI、Playwright Python 运行库及驱动、browser-use 0.13.7、openpyxl 3.1.5；继续使用目标电脑上的系统 Google Chrome，不额外下载 Chromium。
+- 保留 GUI 的 browser-use/playwright、窗口/无头及 1-8 线程选择，以及第十五步的输入、输出、删除、浏览器复用和结果判定规则。
+- 新增 `Start-StudentAid.cmd`：Chrome 已存在就直接启动；缺少时通过 winget 安装。启动器命令内容与发布文件名统一使用 ASCII，避免不同 Windows 系统区域设置把 UTF-8 中文批处理命令解析成乱码。
+- 发布 ZIP 不包含测试资料、实际输入输出、SQLite、日志、缓存、浏览器 profile、虚拟环境或构建临时文件。
+
+### 打包验证
+
+- 冻结运行时自检通过：Tkinter、openpyxl、Playwright、Playwright driver、browser-use 均能从 EXE 内加载，系统 Chrome 检测成功。
+- 直接双击 EXE 的 GUI 冒烟测试通过；窗口标题正确、进程响应正常、关闭后正常退出。
+- `Start-StudentAid.cmd` 在隔离目录实测通过；Chrome 存在时跳过安装并正常启动同一 GUI。
+- 首轮中文 UTF-8 CMD 实测发现乱码启动失败，正式发布前已改为 ASCII 启动器并重新打包复测通过。
+
 ## v0.10-step15-input-compat — 2026-08-08
 
 ### 批量输入兼容修复
