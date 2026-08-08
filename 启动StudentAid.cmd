@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title StudentAid Step 19 Dynamic Columns Invalid SSN - Install and Start
+title StudentAid Step 20 Account Recovery In Progress - Install and Start
 set "PYTHONDONTWRITEBYTECODE=1"
 
-if not exist "%~dp0ait14.py" (
-    echo [ERROR] ait14.py is missing from this directory.
+if not exist "%~dp0ait15.py" (
+    echo [ERROR] ait15.py is missing from this directory.
     pause
     exit /b 1
 )
@@ -101,8 +101,8 @@ if /i "%STUDENTAID_INSTALL_ONLY%"=="1" (
 )
 
 echo [START] Google Chrome: %CHROME_PATH%
-echo [START] StudentAid Step 19 Dynamic Columns Invalid SSN...
-"%APP_PY%" -B "%~dp0ait14.py"
+echo [START] StudentAid Step 20 Account Recovery In Progress...
+"%APP_PY%" -B "%~dp0ait15.py"
 set "APP_EXIT=%ERRORLEVEL%"
 if not "%APP_EXIT%"=="0" (
     echo [ERROR] Application exit code: %APP_EXIT%

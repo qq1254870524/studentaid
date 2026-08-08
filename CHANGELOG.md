@@ -1,5 +1,20 @@
 # 更新日志
 
+## v0.15.0-step20-account-recovery-in-progress — 2026-08-09
+
+### 新增页面明确结果
+
+- 正式源码升级为 `ait15.py`，`ait14.py` 保持不改。
+- 点击 Continue 后出现 `Account Recovery In Progress` 时，立即识别为正常明确结果。
+- 累计 CSV 的结果状态完整写入 `Account Recovery In Progress`，联系方式和恢复方式保持空白。
+- 状态落入 SQLite 和累计 CSV、删除对应输入行后，沿用既有终态清理流程：清浏览器数据、进入 `about:blank`，复用当前 worker 处理下一条。
+
+### 变更边界与验证
+
+- 仅新增常量、页面判定、结果收集、终态清理成员和针对性测试；Step19 动态列、SSN 校验、Retrieve/Cancel、其他明确结果、并发队列、SQLite、输入删行和累计输出逻辑均未调整。
+- `ait14.py` 基线 16 项通过；`ait15.py` 全量回归 18 项通过，新增状态识别/完整输出和终态清理 2 项通过。
+- PyInstaller 和源码启动器入口升级为 `ait15.py`，Windows 文件版本升级为 `0.15.0.0`。
+
 ## v0.14.0-step19-windows-standalone — 2026-08-08
 
 ### 动态输入/输出列

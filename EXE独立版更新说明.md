@@ -1,7 +1,7 @@
-# StudentAid 第十九步 Windows 正式版
+# StudentAid 第二十步 Windows 正式版
 
-版本：`v0.14.0-step19-windows-standalone`
-日期：2026-08-08
+版本：`v0.15.0-step20-windows-standalone`
+日期：2026-08-09
 平台：Windows 10/11 x64
 
 ## 直接使用
@@ -30,6 +30,7 @@
 - `Account Lookup Issue: Get Help` 作为正常明确结果输出。
 - `We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.` 作为正常明确结果输出。
 - `Enter a valid Social Security number.` 作为正常明确结果输出。
+- `Account Recovery In Progress` 作为正常明确结果输出，落盘后沿用终态清理流程。
 - 手机号和脱敏邮箱有值就记录，没有就留空。
 - 累计 CSV 全部字段加双引号，生日保持单列 `MM/DD/YYYY`，附加输入列不合并。
 - 六个必填字段任一缺失时直接删除该输入行；输出第一列已存在的输入也直接删除。

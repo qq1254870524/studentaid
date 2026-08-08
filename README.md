@@ -1,12 +1,19 @@
-# StudentAid 批量处理工具（第十九步动态列与 SSN 校验版）
+# StudentAid 批量处理工具（第二十步账户恢复进行中状态版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait14.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
+正式源码入口是 `ait15.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十步完成内容
+
+- 点击 Continue 后页面出现 `Account Recovery In Progress` 时，作为正常明确结果立即输出。
+- 累计 CSV 的结果状态完整写为 `Account Recovery In Progress`，手机号、邮箱和恢复方式字段保持空白。
+- 结果落盘并删除对应输入行后，沿用已有终态清理与当前 worker 浏览器复用流程。
+- 仅新增该状态分支；第十九步及之前已正常工作的输入、输出、浏览器、并发和清理逻辑保持不变。
 
 ## 第十九步完成内容
 
