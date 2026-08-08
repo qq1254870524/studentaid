@@ -1,10 +1,22 @@
-# StudentAid 批量处理工具（第十四步生日格式修复版）
+# StudentAid 批量处理工具（第十五步批量输入兼容版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式入口是 `ait9.py`；推荐双击 `启动StudentAid第十四步生日格式修复版.cmd`。
+正式入口是 `ait10.py`；推荐双击 `启动StudentAid第十五步批量输入兼容版.cmd`。
+
+## 第十五步完成内容
+
+- 修复批量输入中三位年份：只有“前补一位”或“后补一位”恰好有一个候选能形成 1900 年至当前年份的有效日期时才自动恢复；例如 `09/07/980` 和 `12/26/198` 都唯一恢复为 `09/07/1980`、`12/26/1980`。
+- First Name、Last Name、Month、Day、Year、SSN 任意必填项为空时，按工作表和源行直接从输入文件删除；不写累计输出、不启动浏览器。该规则覆盖此前对空 Last Name 的姓名拆分兜底。
+- 五列输入自动区分 `SSN,DOB,First Name,Last Name,Address` 与 `SSN,First Name,Last Name,DOB,Address`，以实际可解析 DOB 所在列判断，不要求手工换列。
+- 网页等待明确结果超时现在视为可恢复的页面停滞：单次允许官网处理 60 秒，之后自动清数据、重建页面并重填，最多重试 2 次；三次仍失败、停止或其他未取得明确结果的资料继续保留在输入文件，下次运行自动重试。
+- 字段已填但 Continue 30 秒内未进入可点击状态也按页面停滞自动重建，不再直接落为 Playwright 超时失败。
+- Windows/安全扫描器短暂占用输入文件导致原子替换出现 WinError 5 时会限时重试；仍被持续占用才保留资料并明确报错。
+- 第十四步的生日输出规则继续保留：累计 CSV 第 2 列始终为单列 `MM/DD/YYYY`，每行固定 9 列。
+- 累计 CSV 新写入和既有内容统一采用全字段双引号；LibreOffice 即使启用了 `/` 作为“其他分隔符”，引号内的 `MM/DD/YYYY` 也不会被拆成月、日、年三列。
+- `Your Account Is Disabled` 作为正常明确结果：累计 CSV 第 6 列原样写入该状态，联系方式/恢复方式列留空，删除对应输入并继续下一条。
 
 ## 第十四步完成内容
 
@@ -39,6 +51,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 - `Account Not Found`：明确结果落盘并删输入行后，清浏览器数据、回到空白页，下一条重新打开找回页。
 - `Retrieve Your Log-in Information`：记录脱敏电话、脱敏邮箱和恢复方式后，点击 `Cancel`，确认空表单再填下一条。
 - `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
+- `Your Account Is Disabled`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
 - 累计输出一直叠加，按第一列去重；输出第一列已存在的资料会从输入文件直接删除。
 - 只有明确结果或输出中已存在的资料才删除；格式错误、网页失败、停止和未取得明确结果的行保留。
 
@@ -47,7 +60,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 双击：
 
 ```text
-启动StudentAid第十四步生日格式修复版.cmd
+启动StudentAid第十五步批量输入兼容版.cmd
 ```
 
 启动器执行规则：
@@ -56,7 +69,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\python.exe -B ait9.py` 启动，不生成运行字节码缓存。
+5. 使用 `.venv\Scripts\python.exe -B ait10.py` 启动，不生成运行字节码缓存。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -64,7 +77,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 ```cmd
 set STUDENTAID_INSTALL_ONLY=1
-启动StudentAid第十四步生日格式修复版.cmd
+启动StudentAid第十五步批量输入兼容版.cmd
 ```
 
 ## GUI 使用
@@ -108,7 +121,7 @@ set STUDENTAID_INSTALL_ONLY=1
 
 ## 验证结果
 
-第十四步新增生日输出针对性回归，覆盖五列英文月份、五列短日期、七列拆分日期和补零格式；所有输出均为固定 9 列，生日严格为 `MM/DD/YYYY`。第十三步的联系方式、Cancel、Account Not Found、累计输出和输入删行回归继续通过。
+第十五步新增三位年份双向唯一恢复、无歧义姓名拆分、当前失败残留重新导入、结果/表单超时自动重试和输入原子替换占用重试回归；第十四步生日输出回归继续覆盖五列英文月份、五列短日期、七列拆分日期和补零格式。所有输出均为固定 9 列，生日严格为 `MM/DD/YYYY`。第十三步的联系方式、Cancel、Account Not Found、累计输出和输入删行逻辑继续保留。
 
 窗口/browser-use 双线程现场 2/2 完成；包含参考手机号 `8139` 的记录，其电话和邮箱与 `实际输出结果参考.csv` 完全一致。窗口/playwright 双线程 2/2 完成，两条结果后四列均与参考逐列一致。另完成真实 Account Not Found 清数据/`about:blank` 验证，以及 2 线程 4 条复用矩阵：两个 Chrome 各只启动一次，Retrieve 后实际点击 Cancel 并复用空表单继续处理，最终 4/4 完成、失败 0、输入剩余 0。
 
