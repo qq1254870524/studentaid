@@ -1,12 +1,22 @@
-# StudentAid 批量处理工具（第十二步无头稳定版）
+# StudentAid 批量处理工具（第十三步联系方式修复版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式入口是 `ait7.py`；推荐双击 `启动StudentAid第十二步无头稳定版.cmd`。
+正式入口是 `ait8.py`；推荐双击 `启动StudentAid第十三步联系方式修复版.cmd`。
 
-## 第十二步完成内容
+## 第十三步完成内容
+
+- 修复手机号漏记。StudentAid 当前实际使用 `⦁`（U+2981）遮挡号码；例如 `(⦁⦁⦁) ⦁⦁⦁ 8139` 现在会完整写入累计 CSV 第 7 列。
+- 脱敏邮箱同样从结果卡片的可见联系方式段落提取，例如 `je⦁⦁⦁⦁⦁⦁⦁@yahoo.com` 写入第 8 列。有手机号/邮箱就原样记录，没有就保持空白。
+- 联系方式优先限定到 `p.fsa-color-gray-60`，兜底也只检查可见 `p`，不会把页脚公开邮箱误记为账户邮箱。
+- 修复 Retrieve 结果页的 `Cancel` 实际未点击：现在直接点击可见的 `<span>Cancel</span>`，并验证 URL、结果标题、Cancel 或输入表单确实发生变化，不能只凭“已发出点击”日志判断成功。
+- `Cancel` 成功后复用当前 worker 的同一个 Chrome、会话、页面和空表单直接填写下一条；不清缓存、不结束浏览器、不新建 Chrome。
+- `Account Not Found` 仍严格在结果落盘和输入删行后清 cookie/cache/storage/service worker，进入 `about:blank`；下一条再打开指定网址。
+- 累计 CSV 始终追加且按第一列去重。每条明确结果后删除输入行；启动时若输出第一列已存在于输入，也直接删除对应输入行。
+
+第十二步的显示模式和浏览器生命周期继续保留：
 
 - GUI 有两个独立下拉框：浏览器后端选择 `browser-use` / `playwright`，浏览器显示选择 `窗口` / `无头`。
 - 默认 `browser-use`、`无头`、2 线程；后端和显示模式可组成四种组合，每个 worker 都使用独立 Chrome、页面和缓存。
@@ -17,7 +27,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 - 页面导航在收到主文档后返回，再严格等待表单字段可见和 `Loading...` 消失，避免被无关长连接资源拖住。
 - browser-use 退出时先结束该 worker 的精确 Chrome PID 树、删除一次性 profile，再停止 CDP 客户端；停止、正常结束和失败结束都不会留下该批次缓存或浏览器进程。
 
-第十一步的数据规则继续保留：
+既有结果规则继续保留：
 
 - `Account Not Found`：明确结果落盘并删输入行后，清浏览器数据、回到空白页，下一条重新打开找回页。
 - `Retrieve Your Log-in Information`：记录脱敏电话、脱敏邮箱和恢复方式后，点击 `Cancel`，确认空表单再填下一条。
@@ -30,7 +40,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 双击：
 
 ```text
-启动StudentAid第十二步无头稳定版.cmd
+启动StudentAid第十三步联系方式修复版.cmd
 ```
 
 启动器执行规则：
@@ -39,7 +49,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\python.exe -B ait7.py` 启动，不生成运行字节码缓存。
+5. 使用 `.venv\Scripts\python.exe -B ait8.py` 启动，不生成运行字节码缓存。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -47,7 +57,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 ```cmd
 set STUDENTAID_INSTALL_ONLY=1
-启动StudentAid第十二步无头稳定版.cmd
+启动StudentAid第十三步联系方式修复版.cmd
 ```
 
 ## GUI 使用
@@ -81,7 +91,8 @@ set STUDENTAID_INSTALL_ONLY=1
 ```text
 2 个 worker，各自独立浏览器和缓存 → 打开找回页 → 填资料 → 真实点击 Continue
   ├─ Account Not Found → 落盘 → 删输入行 → 清全部数据 → about:blank
-  ├─ Retrieve Your Log-in Information → 落盘 → 删输入行 → Cancel → 空表单
+  ├─ Retrieve Your Log-in Information → 落盘 → 删输入行 → 点击可见 span Cancel
+  │  → 验证结果页离开 → 同一浏览器/会话/页面的空表单直接填下一条
   ├─ Limit Reached: Try Again in 24 Hours → 正常落盘 → 删输入行 → 继续
   ├─ 点击未触发 → Locator / Enter / DOM click 分级验证
   ├─ Loading 超时或会话失效 → 清数据 → 重开 → 最多自动重试 2 次
@@ -90,8 +101,8 @@ set STUDENTAID_INSTALL_ONLY=1
 
 ## 验证结果
 
-第十二步开发副本自动回归共 18 项并全部通过，覆盖 GUI 两个下拉框、四组合配置、两个后端的窗口/无头真实 Chrome、隐藏窗口 UA、`navigator.webdriver=false`、Continue 真点击、双线程、结果累计、输入删行、Cancel、缓存清理和停止一致性。正式发布目录按运行版精简，不附带开发测试脚本。
+第十三步新增 8 项针对性自动回归并全部通过，覆盖 `⦁` 手机号、掩码邮箱、联系方式缺失留空、页脚邮箱排除、累计输出、输入删行、可见 `span Cancel` 点击、Account Not Found 清数据和 `about:blank`。正式发布目录按运行版精简，不附带开发测试脚本。
 
-使用 `假资料测试4.xlsx` 隔离副本的最终四组合现场矩阵共处理 8 条：每组 2/2 完成、失败 0、输入剩余 0、输出均为两行且每行 9 列、退出后残留 Chrome 0。详细过程见 `CHANGELOG.md`。
+窗口/browser-use 双线程现场 2/2 完成；包含参考手机号 `8139` 的记录，其电话和邮箱与 `实际输出结果参考.csv` 完全一致。窗口/playwright 双线程 2/2 完成，两条结果后四列均与参考逐列一致。另完成真实 Account Not Found 清数据/`about:blank` 验证，以及 2 线程 4 条复用矩阵：两个 Chrome 各只启动一次，Retrieve 后实际点击 Cancel 并复用空表单继续处理，最终 4/4 完成、失败 0、输入剩余 0。
 
 开发测试脚本、测试资料、SQLite、累计结果、浏览器缓存、临时 profile 和录制文件均不进入发布包。
