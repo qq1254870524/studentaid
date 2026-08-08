@@ -1,20 +1,25 @@
-StudentAid 批量处理工具 v0.10 独立版
+StudentAid 批量处理工具 v0.14 独立版
 =====================================
 
 使用方法：
 1. 完整解压 ZIP，不要只从压缩包内直接运行。
 2. 已安装 Google Chrome：直接双击“StudentAid-Batch-Tool.exe”。
 3. 未安装 Google Chrome：双击“Start-StudentAid.cmd”，缺少时会自动安装 Chrome。
-4. 在 GUI 中选择输入 XLSX/CSV 和长期累计输出 CSV，再选择 browser-use/playwright、窗口/无头及线程数。
+4. 在 GUI 中选择输入 XLSX/CSV 和长期累计输出 CSV，再选择 browser-use/playwright、窗口/无头及任意正整数线程数。
 
 目标电脑不需要安装 Python、Playwright、openpyxl 或 browser-use。
 程序使用系统 Google Chrome；每个线程使用独立临时浏览器环境，结束时自动清缓存和进程。
 
 输出规则：
-- 累计 CSV 无表头、固定 9 列。
+- 累计 CSV 无表头，保留全部输入列，再追加 4 个结果列；输入总列数不受限制。
 - 第 2 列生日始终是单列 MM/DD/YYYY。
 - CSV 全字段双引号，LibreOffice 打开不会把生日按“/”拆成三列。
 - Your Account Is Disabled 和 Limit Reached: Try Again in 24 Hours 都作为正常明确结果输出。
+- Account Lookup Issue: Get Help 作为正常明确结果输出。
+- We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID. 作为正常明确结果输出。
+- Enter a valid Social Security number. 作为正常明确结果输出。
 - First Name、Last Name、Month、Day、Year、SSN 任一缺失时直接删除对应输入行，不写输出。
+- 同一批输入中第一列重复时只运行一个浏览器任务；结果明确后一次删除全部匹配行。
+- 官网瞬时故障在一轮会话恢复后仍无明确结果时，任务会回到队尾再试；最多三轮，不阻塞其他资料。
 
 建议：首次运行 Windows SmartScreen 如显示提示，点击“更多信息”后选择“仍要运行”。

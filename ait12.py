@@ -1,5 +1,75 @@
 """
-StudentAid 浏览器自动化工具 v6。
+StudentAid 浏览器自动化工具 v12。
+
+2026-08-08 第十七步瞬时失败队尾重试版更新：
+1. 浏览器任务完成三次页面会话重建后仍未取得明确结果时，不再立即作为本批终态
+   失败；任务会回到队尾，先让其余资料继续处理，避免单条慢响应持续占用线程。
+2. 每个唯一任务最多执行三轮队列尝试，每轮仍保留原有三次页面清理、重开、重填；
+   下一轮会在当前队列后方执行，让官网瞬时故障有充分恢复时间。
+3. SQLite 新增同组 retry 状态回退：代表任务与同第一列重复行一起回到 pending，
+   attempt_count 继续累计；最终明确结果仍只追加一行并一次删除全部匹配输入行。
+4. 协调器改为等待动态队列真正清空后再发送线程结束信号，保证运行中追加到队尾的
+   重试任务不会落在结束信号之后而被遗漏；停止按钮仍可立即结束并保留未完成输入。
+
+2026-08-08 第十六步大批量去重稳定版更新：
+1. 同一批输入按规范化后的第一列只创建一个浏览器任务；重复资料不再被 8 个线程
+   同时领取，避免同一 SSN 重复打开页面、重复点击 Continue 和重复触发官网限流。
+2. 唯一任务取得明确结果后，SQLite 会把同一批次、同一第一列的全部重复记录一起
+   标记完成；累计 CSV 仍只写一行，输入文件仍一次删除全部匹配行。
+3. 唯一任务失败或停止时，同组重复记录一起进入相同终态并保留在输入文件，后续
+   批次可以整体重试，不会出现没有队列任务却长期停在 pending 的情况。
+4. 累计 CSV 启动规范化现在同时删除全空物理行；即使文件已经是全字段双引号格式，
+   也会清除文件开头或中间的空白行，保持固定 9 列数据连续。
+
+2026-08-08 第十五步批量输入兼容版更新：
+1. 兼容 ``MM/DD/YYY`` 或 ``MM-DD-YYY`` 的三位年份：仅当补前导 ``1`` 后落在
+   1900 到当前年份且能组成真实日期时才接受，避免把其他错误日期静默改写。
+2. First Name、Last Name、Month、Day、Year、SSN 任意必填项为空时，直接从输入
+   文件删除该源行，不写累计输出，也不启动浏览器处理该行。
+3. 输入处理发生在校验阶段；累计输出生日仍严格为单列 ``MM/DD/YYYY``，
+   其他无法可靠恢复的格式错误继续保留在输入文件，不会被误删。
+
+2026-08-08 第十四步生日格式修复版更新：
+1. 累计输出第 2 列生日强制统一为 ``MM/DD/YYYY``，月份和日期始终补足两位。
+2. 不再保留五列输入中的英文月份、短日期或其他原始显示格式；输入可以继续使用
+   支持的多种生日写法，但输出只采用校验后的 month/day/year 生成单列标准日期。
+3. 七列拆分生日输入仍按月、日、年读取，累计 CSV 不会把生日拆成三列；每行继续
+   固定为 5 个资料列加 4 个结果列，共 9 列。
+4. 现场已有累计 CSV 的 17 条生日已全部是单列 ``MM/DD/YYYY``，无需重写现有结果。
+
+2026-08-08 第十三步联系方式修复版更新：
+1. 修复找回结果页手机号漏记：StudentAid 实际掩码字符为 ``⦁``（U+2981），
+   旧版只识别 ``*`` 和 ``•``，导致 ``(⦁⦁⦁) ⦁⦁⦁ 8139`` 未写入累计 CSV。
+2. 联系方式改为优先读取结果卡片中可见的 ``p.fsa-color-gray-60``，手机号和
+   邮箱分别按掩码格式判断；页面有值就原样记录，没有就严格保持空白。
+3. 兜底扫描也只限定在可见 ``p`` 元素，避免把页脚邮箱或页面其他文字误当成
+   找回邮箱；兼容 ``⦁``、``•``、``●`` 和 ``*`` 掩码字符。
+4. Retrieve 的 Cancel 改为直接点击可见 ``<span>Cancel</span>``，并验证结果页
+   实际离开；旧版仅发出按钮坐标点击，现场存在没有点上的情况。点击成功后复用同一个
+   worker、浏览器、页面会话和空白表单继续填下一条，不清缓存、不重启 Chrome。
+5. Account Not Found 保存后清除全部浏览器数据、回到 about:blank，下一条才重新打开
+   指定网址；这条清理规则不用于 Retrieve。
+6. 保持累计输出、明确结果后删除输入行，以及启动时按累计 CSV 第一列清理输入行。
+
+2026-08-08 第十二步无头稳定版更新：
+1. GUI 新增“浏览器显示”下拉框，选项严格为“窗口”和“无头”；默认“无头”。
+2. 窗口模式显示 900x720 的小 Chrome 窗口，页面 viewport 固定为 880x650；
+   无头模式完全不创建可见浏览器窗口。
+3. browser-use / playwright 与窗口 / 无头可自由组合；每个 worker 继续拥有独立
+   Chrome 进程、CDP/Context 和缓存目录，不复用用户已有浏览器。
+4. 批处理日志记录本次后端、显示模式和线程数；运行中禁止修改两个下拉选项。
+5. 停止或结束时两种显示模式都执行相同的 cookie/cache/storage/service worker
+   清理，并结束本批次浏览器；browser-use 临时 profile 同步删除。
+6. 新增四组合启动参数、GUI 默认值和浏览器生命周期回归；使用假资料测试4.xlsx
+   的隔离副本对四种组合逐一现场验证。
+7. 修复小窗口下 Continue 坐标与页面缩放不一致导致鼠标落点未触发：优先使用
+   Playwright Locator 的真实按钮点击，未进入提交状态时依次用 Enter 和 DOM click 兜底，
+   每种方式都必须确认 Loading、按钮禁用、结果文案或目标路径后才进入结果等待。
+8. 实测 Chromium 原生 headless 会被 StudentAid 以 HTTP/2 协议错误拒绝；“无头”改用
+   Windows 隐藏的普通 Chrome 网络栈，启动时只隐藏本批次精确 PID 的窗口，用户看不到
+   浏览器且不会影响已有 Chrome。导航以 commit 返回，随后仍严格等待表单字段和 Loading。
+9. browser-use 结束顺序改为先结束精确 PID 树、删除一次性 profile，再断开 CDP，避免
+   失败页面令关闭阶段卡住；四组合 2 线程现场矩阵 8/8 完成且残留 Chrome 为 0。
 
 2026-08-08 第十一步稳定版更新：
 1. GUI 新增 browser-use / playwright 后端下拉选项；两种模式都为每个 worker
@@ -104,11 +174,16 @@ except ImportError:  # GUI 仍可启动，并在开始处理时给出明确错�
     sync_playwright = None
 
 
-APP_TITLE = "StudentAid 批量处理工具 - 第十一步稳定版"
+APP_TITLE = "StudentAid 批量处理工具 - 第十七步瞬时失败队尾重试版"
 DATABASE_FILENAME = "studentaid.sqlite3"
 CUMULATIVE_OUTPUT_FILENAME = "StudentAid累计结果.csv"
 LIMIT_REACHED_HEADING = "Limit Reached: Try Again in 24 Hours"
+ACCOUNT_DISABLED_HEADING = "Your Account Is Disabled"
 BROWSER_BACKENDS = ("browser-use", "playwright")
+DISPLAY_MODES = ("窗口", "无头")
+MAX_QUEUE_ATTEMPTS = 3
+SMALL_WINDOW_SIZE = {"width": 900, "height": 720}
+SMALL_VIEWPORT_SIZE = {"width": 880, "height": 650}
 RETRIEVE_ACCOUNT_DETAILS_URL = (
     "https://studentaid.gov/fsa-id/sign-in/retrieve-account-details"
 )
@@ -198,6 +273,10 @@ class PageSessionExpired(RuntimeError):
 
 class PageSubmissionStalled(RuntimeError):
     """Continue 已提交但站点长时间停在 Loading，需要重建浏览器会话。"""
+
+
+class MissingRequiredField(ValueError):
+    """输入源行缺少用户指定的 StudentAid 必填字段，应直接删除。"""
 
 
 def _now_iso() -> str:
@@ -299,6 +378,24 @@ def _validate_details(
 
 def _parse_dob(value: str) -> tuple[str, str, str]:
     value = value.strip()
+    short_year = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{3})", value)
+    if short_year:
+        month, day, year_tail = short_year.groups()
+        candidates: list[date] = []
+        for restored_year in (int(f"1{year_tail}"), int(f"{year_tail}0")):
+            if not 1900 <= restored_year <= date.today().year:
+                continue
+            try:
+                candidates.append(date(restored_year, int(month), int(day)))
+            except ValueError:
+                continue
+        if len(candidates) == 1:
+            parsed = candidates[0]
+            return (
+                f"{parsed.month:02d}",
+                f"{parsed.day:02d}",
+                f"{parsed.year:04d}",
+            )
     for date_format in (
         "%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%Y/%m/%d",
         "%m/%d/%y", "%m-%d-%y", "%B %d, %Y", "%b %d, %Y",
@@ -370,12 +467,36 @@ def _row_looks_like_split_date(row: Sequence[str]) -> bool:
     if len(row) < 6:
         return False
     try:
-        _normalise_month(row[1])
-        _normalise_day(row[2])
-        _normalise_year(row[3])
+        if row[1].strip():
+            _normalise_month(row[1])
+        if row[2].strip():
+            _normalise_day(row[2])
+        if row[3].strip():
+            _normalise_year(row[3])
         return True
     except ValueError:
         return False
+
+
+def _raise_for_missing_required_fields(
+    ssn: str,
+    month: str,
+    day: str,
+    year: str,
+    first_name: str,
+    last_name: str,
+) -> None:
+    fields = (
+        ("SSN", ssn),
+        ("Month", month),
+        ("Day", day),
+        ("Year", year),
+        ("First Name", first_name),
+        ("Last Name", last_name),
+    )
+    missing = [name for name, value in fields if not str(value).strip()]
+    if missing:
+        raise MissingRequiredField("缺少必填字段：" + ", ".join(missing))
 
 
 def _parse_input_row(
@@ -405,10 +526,36 @@ def _parse_input_row(
             raise ValueError(
                 "至少需要 4 列：SSN、DOB、First Name、Last Name"
             )
-        # 旧版输入：SSN, DOB, First Name, Last Name, Address。
-        ssn, dob, first_name, last_name = row[:4]
-        month, day, year = _parse_dob(dob)
+        ssn = row[0]
+        # 同时兼容两种五列顺序：
+        # 1) SSN, DOB, First Name, Last Name, Address
+        # 2) SSN, First Name, Last Name, DOB, Address
+        second_column_error: ValueError | None = None
+        try:
+            if not row[1].strip():
+                raise ValueError("DOB 为空")
+            month, day, year = _parse_dob(row[1])
+            first_name, last_name = row[2:4]
+        except ValueError as exc:
+            second_column_error = exc
+            try:
+                if not row[3].strip():
+                    raise ValueError("DOB 为空")
+                month, day, year = _parse_dob(row[3])
+                first_name, last_name = row[1:3]
+            except ValueError:
+                if not row[1].strip():
+                    month = day = year = ""
+                    first_name, last_name = row[2:4]
+                else:
+                    raise second_column_error
         address = ",".join(row[4:]).strip()
+
+    first_name = first_name.strip()
+    last_name = last_name.strip()
+    _raise_for_missing_required_fields(
+        ssn, month, day, year, first_name, last_name
+    )
 
     return _validate_details(
         ssn, month, day, year, first_name, last_name
@@ -573,10 +720,22 @@ def _atomic_write_text_rows(
             writer.writerows(rows)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _atomic_replace_with_retry(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _atomic_replace_with_retry(source: Path, target: Path) -> None:
+    """Windows 上外部扫描器短暂占用文件时重试原子替换。"""
+    for attempt in range(1, 13):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt >= 12:
+                raise
+            time.sleep(min(0.75, 0.1 * attempt))
 
 
 def remove_input_rows_by_keys(input_path: Path, keys: set[str]) -> int:
@@ -631,7 +790,74 @@ def remove_input_rows_by_keys(input_path: Path, keys: set[str]) -> int:
                 if removed:
                     workbook.save(temporary)
                     workbook.close()
-                    os.replace(temporary, input_path)
+                    _atomic_replace_with_retry(temporary, input_path)
+                else:
+                    workbook.close()
+            finally:
+                try:
+                    workbook.close()
+                except Exception:
+                    pass
+                if temporary.exists():
+                    temporary.unlink()
+            return removed
+        raise ValueError("只支持修改 .csv、.scv、.txt 和 .xlsx 输入文件")
+
+
+def remove_input_rows_by_locations(
+    input_path: Path, records: Sequence[ImportedRecord]
+) -> int:
+    """按导入时的工作表/源行精确删除，兼容第一列 SSN 本身为空的记录。"""
+    locations = {
+        (record.source_sheet, int(record.source_row))
+        for record in records
+        if record.source_row > 0
+    }
+    if not locations:
+        return 0
+    input_path = input_path.resolve()
+    with _SOURCE_FILE_LOCK:
+        suffix = input_path.suffix.casefold()
+        if suffix in {".csv", ".scv", ".txt"}:
+            encoding, delimiter, rows = _detect_text_format(input_path)
+            kept = [
+                row
+                for row_number, row in enumerate(rows, start=1)
+                if ("", row_number) not in locations
+            ]
+            removed = len(rows) - len(kept)
+            if removed:
+                _atomic_write_text_rows(input_path, kept, encoding, delimiter)
+            return removed
+
+        if suffix == ".xlsx":
+            try:
+                from openpyxl import load_workbook
+            except ImportError as exc:
+                raise RuntimeError("修改 XLSX 需要安装 openpyxl") from exc
+            workbook = load_workbook(input_path)
+            temporary = input_path.with_name(
+                f".{input_path.stem}.{os.getpid()}.{uuid.uuid4().hex}.tmp.xlsx"
+            )
+            removed = 0
+            try:
+                for worksheet in workbook.worksheets:
+                    rows_to_delete = sorted(
+                        {
+                            row_number
+                            for sheet_name, row_number in locations
+                            if sheet_name == worksheet.title
+                            and 1 <= row_number <= worksheet.max_row
+                        },
+                        reverse=True,
+                    )
+                    for row_number in rows_to_delete:
+                        worksheet.delete_rows(row_number, 1)
+                    removed += len(rows_to_delete)
+                if removed:
+                    workbook.save(temporary)
+                    workbook.close()
+                    _atomic_replace_with_retry(temporary, input_path)
                 else:
                     workbook.close()
             finally:
@@ -650,16 +876,13 @@ def _format_output_dob(details: AccountDetails) -> str:
 
 
 def build_cumulative_output_row(item: WorkItem, result: RecoveryResult) -> list[str]:
-    """生成与实际输出参考一致的 5 个资料列 + 4 个结果列。"""
+    """生成固定 9 列结果；第 2 列生日始终为 MM/DD/YYYY。"""
     first_column = (
         item.original_fields[0] if item.original_fields else item.details.original_ssn
     )
-    original_dob = ""
-    if len(item.original_fields) >= 5 and not _row_looks_like_split_date(item.original_fields):
-        original_dob = item.original_fields[1].strip()
     return [
         first_column,
-        original_dob or _format_output_dob(item.details),
+        _format_output_dob(item.details),
         item.details.first_name,
         item.details.last_name,
         item.address,
@@ -681,7 +904,9 @@ def append_cumulative_result(
         if item.record_key and item.record_key in existing_keys:
             return False
         with output_path.open("a", encoding="utf-8-sig", newline="") as stream:
-            csv.writer(stream, lineterminator="\n").writerow(
+            csv.writer(
+                stream, lineterminator="\n", quoting=csv.QUOTE_ALL
+            ).writerow(
                 build_cumulative_output_row(item, result)
             )
             stream.flush()
@@ -689,12 +914,119 @@ def append_cumulative_result(
     return True
 
 
+def ensure_cumulative_output_quote_all(output_path: Path) -> bool:
+    """把累计 CSV 规范为非空、全字段引号，避免 LibreOffice 错误分列。"""
+    output_path = output_path.resolve()
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        return False
+    raw = output_path.read_text(encoding="utf-8-sig")
+    first_nonempty = next((line for line in raw.splitlines() if line.strip()), "")
+    _encoding, delimiter, rows = _detect_text_format(output_path)
+    nonempty_rows = [
+        row
+        for row in rows
+        if any(_cell_to_text(value).strip() for value in row)
+    ]
+    has_empty_rows = len(nonempty_rows) != len(rows)
+    needs_quote_all = bool(first_nonempty) and not first_nonempty.startswith('"')
+    if not has_empty_rows and not needs_quote_all:
+        return False
+    temporary = output_path.with_name(
+        f".{output_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.writer(
+                stream, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_ALL
+            )
+            writer.writerows(nonempty_rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _atomic_replace_with_retry(temporary, output_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return True
+
+
 def resolve_output_target(output_target: Path) -> tuple[Path, Path]:
-    """兼容旧版目录参数；GUI 第十一步直接选择累计 CSV。"""
+    """兼容旧版目录参数；GUI 第十四步直接选择累计 CSV。"""
     output_target = output_target.resolve()
     if output_target.suffix.casefold() in {".csv", ".scv", ".txt"}:
         return output_target.parent, output_target
     return output_target, output_target / CUMULATIVE_OUTPUT_FILENAME
+
+
+def _normalise_display_mode(display_mode: str) -> str:
+    display_mode = display_mode.strip()
+    if display_mode not in DISPLAY_MODES:
+        raise ValueError(f"浏览器显示模式必须是：{', '.join(DISPLAY_MODES)}")
+    return display_mode
+
+
+def _is_headless(display_mode: str) -> bool:
+    return _normalise_display_mode(display_mode) == "无头"
+
+
+def _normal_chrome_user_agent(browser_version: str) -> str:
+    match = re.search(r"\d+(?:\.\d+){0,3}", str(browser_version))
+    version = match.group(0) if match else "120.0.0.0"
+    parts = version.split(".")
+    version = ".".join((parts + ["0", "0", "0", "0"])[:4])
+    return (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{version} Safari/537.36"
+    )
+
+
+def _chrome_process_ids(command_line_token: str = "") -> set[int]:
+    try:
+        import psutil
+
+        process_ids: set[int] = set()
+        for process in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                if (process.info["name"] or "").casefold() != "chrome.exe":
+                    continue
+                command_line = " ".join(process.info["cmdline"] or [])
+                if command_line_token and command_line_token not in command_line:
+                    continue
+                process_ids.add(int(process.info["pid"]))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return process_ids
+    except Exception:
+        return set()
+
+
+def _hide_windows_for_processes(process_ids: set[int]) -> int:
+    if os.name != "nt" or not process_ids:
+        return 0
+    try:
+        import ctypes
+        import ctypes.wintypes
+
+        user32 = ctypes.windll.user32
+        hidden = 0
+        callback_type = ctypes.WINFUNCTYPE(
+            ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+        )
+
+        @callback_type
+        def callback(window_handle: int, _parameter: int) -> bool:
+            nonlocal hidden
+            process_id = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(window_handle, ctypes.byref(process_id))
+            if process_id.value in process_ids and user32.IsWindowVisible(window_handle):
+                user32.ShowWindow(window_handle, 0)
+                hidden += 1
+            return True
+
+        user32.EnumWindows(callback, 0)
+        return hidden
+    except Exception:
+        return 0
 
 
 @dataclass
@@ -717,8 +1049,9 @@ class BrowserUseBrowserHost:
     多线程结束时竞争标签页。表单由确定性 Playwright 定位器通过该 CDP 会话执行。
     """
 
-    def __init__(self, worker_number: int) -> None:
+    def __init__(self, worker_number: int, headless: bool = True) -> None:
         self.worker_number = worker_number
+        self.headless = bool(headless)
         self._cdp_url = ""
         self._process: subprocess.Popen[Any] | None = None
         self._browser_pid: int | None = None
@@ -775,10 +1108,9 @@ class BrowserUseBrowserHost:
                 user_data_dir=str(self._profile_dir),
                 headless=False,
                 keep_alive=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--window-size=1440,900",
-                ],
+                window_size=dict(SMALL_WINDOW_SIZE),
+                viewport=dict(SMALL_VIEWPORT_SIZE),
+                args=["--disable-blink-features=AutomationControlled"],
             )
             debug_port = self._find_free_port()
             launch_args = [*profile.get_args(), f"--remote-debugging-port={debug_port}"]
@@ -788,12 +1120,18 @@ class BrowserUseBrowserHost:
                 if os.name == "nt"
                 else 0
             )
+            startupinfo = None
+            if os.name == "nt" and self.headless:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
             self._process = subprocess.Popen(
                 [str(chrome_path), *launch_args],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
+                startupinfo=startupinfo,
             )
             self._browser_pid = self._process.pid
             self._wait_until_ready(timeout)
@@ -856,7 +1194,7 @@ class BrowserUseBrowserHost:
         self._remove_profile_dir()
 
 
-def launch_browser(playwright: Playwright) -> BrowserLaunch:
+def launch_browser(playwright: Playwright, headless: bool = True) -> BrowserLaunch:
     """启动独立、隐藏 AutomationControlled 的真实 Chrome。
 
     实测旧版 ``playwright.chromium.launch(channel="chrome")`` 会令
@@ -868,7 +1206,11 @@ def launch_browser(playwright: Playwright) -> BrowserLaunch:
         browser = playwright.chromium.launch(
             channel="chrome",
             headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                f"--window-size={SMALL_WINDOW_SIZE['width']},{SMALL_WINDOW_SIZE['height']}",
+                *(["--window-position=-32000,-32000"] if headless else []),
+            ],
         )
     except Exception as exc:
         raise RuntimeError(
@@ -877,7 +1219,11 @@ def launch_browser(playwright: Playwright) -> BrowserLaunch:
     return BrowserLaunch(
         browser,
         False,
-        "独立 Google Chrome（AutomationControlled 已关闭）",
+        (
+            "独立 Google Chrome 无头模式（AutomationControlled 已关闭）"
+            if headless
+            else "独立 Google Chrome 小窗口（900x720，AutomationControlled 已关闭）"
+        ),
         owns_browser=True,
         dedicated_profile=True,
     )
@@ -897,7 +1243,7 @@ def step_1_open_retrieve_account_details(
         try:
             page.goto(
                 RETRIEVE_ACCOUNT_DETAILS_URL,
-                wait_until="load",
+                wait_until="commit",
                 timeout=60_000,
             )
             _check_stop(stop_event)
@@ -951,61 +1297,101 @@ def step_2_fill_account_details(
     _type_account_field(page, BIRTH_YEAR_SELECTOR, details.birth_year)
     _type_account_field(page, SSN_SELECTOR, details.ssn)
     _check_stop(stop_event)
-    page.wait_for_function(
-        """
-        () => {
-            const selectors = [
-                "#fsa_Input_ForgotUsernameFirstName",
-                "#fsa_Input_ForgotUsernameLastName",
-                "#fsa_Input_ForgotUsernameDateOfBirthMonth",
-                "#fsa_Input_ForgotUsernameDateOfBirthDay",
-                "#fsa_Input_ForgotUsernameDateOfBirthYear",
-                "#fsa_Input_ForgotUsernameSsnInput",
-            ];
-            const button = [...document.querySelectorAll("button")].find(
-                element => (element.innerText || "").trim() === "Continue"
-            );
-            return selectors.every(selector => {
-                const field = document.querySelector(selector);
-                return field && String(field.value || "").length > 0;
-            }) && button && !button.disabled;
-        }
-        """,
-        timeout=30_000,
-    )
+    try:
+        page.wait_for_function(
+            """
+            () => {
+                const selectors = [
+                    "#fsa_Input_ForgotUsernameFirstName",
+                    "#fsa_Input_ForgotUsernameLastName",
+                    "#fsa_Input_ForgotUsernameDateOfBirthMonth",
+                    "#fsa_Input_ForgotUsernameDateOfBirthDay",
+                    "#fsa_Input_ForgotUsernameDateOfBirthYear",
+                    "#fsa_Input_ForgotUsernameSsnInput",
+                ];
+                const button = [...document.querySelectorAll("button")].find(
+                    element => (element.innerText || "").trim() === "Continue"
+                );
+                return selectors.every(selector => {
+                    const field = document.querySelector(selector);
+                    return field && String(field.value || "").length > 0;
+                }) && button && !button.disabled;
+            }
+            """,
+            timeout=30_000,
+        )
+    except Exception as exc:
+        raise PageSubmissionStalled(
+            "资料已填写，但 Continue 在 30 秒内未进入可点击状态"
+        ) from exc
     page.wait_for_timeout(200)
 
 
-def step_3_click_continue(page: Page, stop_event: threading.Event) -> None:
-    """使用与 browser-use 一致的真实坐标鼠标点击并确认提交已启动。"""
-    _check_stop(stop_event)
-    continue_element = page.get_by_role("button", name="Continue", exact=True).first
-    continue_element.wait_for(state="visible", timeout=30_000)
-    if not continue_element.is_enabled():
-        raise RuntimeError("Continue 按钮未启用，请检查字段输入状态")
-    box = continue_element.bounding_box()
-    if not box:
-        raise RuntimeError("无法取得 Continue 按钮可见坐标")
-    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+def _wait_for_submission_started(page: Page, timeout_ms: int) -> bool:
     try:
         page.wait_for_function(
             """
             () => {
                 const text = document.body?.innerText || "";
+                const button = [...document.querySelectorAll("button")].find(
+                    element => (element.innerText || "").trim() === "Continue"
+                );
                 return text.includes("Loading...")
                     || text.includes("Account Not Found")
                     || text.includes("Recover my account with a photo ID")
                     || text.includes("Limit Reached: Try Again in 24 Hours")
+                    || text.includes("Your Account Is Disabled")
                     || text.includes("An unknown error has occurred")
-                    || location.pathname.endsWith("/username");
+                    || location.pathname.endsWith("/username")
+                    || (button && button.disabled);
             }
             """,
-            timeout=5_000,
+            timeout=timeout_ms,
         )
-    except Exception as exc:
-        raise PageSubmissionStalled(
-            "点击 Continue 后页面没有进入 Loading 或结果状态"
-        ) from exc
+        return True
+    except Exception:
+        return False
+
+
+def step_3_click_continue(
+    page: Page,
+    stop_event: threading.Event,
+    progress_callback: Callable[[str], None] | None = None,
+) -> None:
+    """点击真实 Continue，并在必要时按可验证顺序使用两级兜底。"""
+    _check_stop(stop_event)
+    continue_element = page.get_by_role("button", name="Continue", exact=True).first
+    continue_element.wait_for(state="visible", timeout=30_000)
+    if not continue_element.is_enabled():
+        raise RuntimeError("Continue 按钮未启用，请检查字段输入状态")
+    continue_element.scroll_into_view_if_needed(timeout=10_000)
+    try:
+        continue_element.click(timeout=10_000)
+    except Exception:
+        _report_stage(progress_callback, "Continue 标准点击未完成，正在使用 Enter 兜底")
+    if _wait_for_submission_started(page, 5_000):
+        return
+
+    _check_stop(stop_event)
+    _report_stage(progress_callback, "Continue 尚未触发，正在聚焦按钮并按 Enter")
+    try:
+        continue_element.focus()
+        continue_element.press("Enter", timeout=5_000)
+    except Exception:
+        pass
+    if _wait_for_submission_started(page, 5_000):
+        return
+
+    _check_stop(stop_event)
+    _report_stage(progress_callback, "Continue 仍未触发，正在执行按钮 DOM click")
+    try:
+        continue_element.evaluate("button => button.click()")
+    except Exception:
+        pass
+    if _wait_for_submission_started(page, 5_000):
+        return
+
+    raise PageSubmissionStalled("三种 Continue 点击方式均未进入提交或结果状态")
 
 
 def _report_stage(
@@ -1025,10 +1411,10 @@ def step_4_judge_password_recovery(
     stop_event: threading.Event,
     progress_callback: Callable[[str], None] | None = None,
     *,
-    timeout_ms: int = 45_000,
+    timeout_ms: int = 60_000,
     poll_interval_ms: int = 125,
     heartbeat_seconds: float = 5.0,
-    stalled_loading_seconds: float = 20.0,
+    stalled_loading_seconds: float = 60.0,
 ) -> str:
     """等待明确页面结果；持续 Loading 会触发重建会话，而不是无限转圈。"""
     started = time.monotonic()
@@ -1058,6 +1444,9 @@ def step_4_judge_password_recovery(
             if LIMIT_REACHED_HEADING in body_text:
                 _report_stage(progress_callback, f"已识别结果：{LIMIT_REACHED_HEADING}")
                 return "limit_reached"
+            if ACCOUNT_DISABLED_HEADING in body_text:
+                _report_stage(progress_callback, f"已识别结果：{ACCOUNT_DISABLED_HEADING}")
+                return "account_disabled"
             if re.search(
                 r"^\s*Account Not Found(?:\s*:\s*Create a New Account)?\s*$",
                 body_text,
@@ -1074,7 +1463,7 @@ def step_4_judge_password_recovery(
 
         elapsed = now - started
         if now >= deadline:
-            raise RuntimeError(
+            raise PageSubmissionStalled(
                 f"等待 StudentAid 明确结果超时（{timeout_ms / 1000:g} 秒）"
             )
         if elapsed >= next_heartbeat:
@@ -1094,9 +1483,71 @@ def _visible_text(page: Page, text: str) -> str:
     return locator.inner_text().strip() if locator.is_visible() else ""
 
 
+_MASK_CHARACTERS = "*•⦁●"
+_MASK_CHARACTER_CLASS = re.escape(_MASK_CHARACTERS)
+_MASKED_PHONE_RE = re.compile(
+    rf"^\(\s*[{_MASK_CHARACTER_CLASS}]{{3}}\s*\)\s*"
+    rf"[{_MASK_CHARACTER_CLASS}]{{3}}\s*\d{{4}}$"
+)
+
+
+def _normalise_contact_text(value: str) -> str:
+    """保留掩码内容，只统一 DOM 中的不可见/重复空白。"""
+    return re.sub(r"\s+", " ", value.replace("\xa0", " ")).strip()
+
+
+def _looks_like_masked_phone(value: str) -> bool:
+    return bool(_MASKED_PHONE_RE.fullmatch(_normalise_contact_text(value)))
+
+
+def _looks_like_masked_email(value: str) -> bool:
+    value = _normalise_contact_text(value)
+    if "@" not in value or not any(char in value for char in _MASK_CHARACTERS):
+        return False
+    local_part, separator, domain = value.partition("@")
+    if not separator or not local_part or not domain or " " in value:
+        return False
+    # StudentAid 只遮挡本地部分；限定为一行邮箱格式，避免页脚说明文字被误记。
+    return bool(
+        re.fullmatch(
+            rf"[A-Za-z0-9._%+\-{_MASK_CHARACTER_CLASS}]+@"
+            r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+            value,
+        )
+    )
+
+
+def _visible_contact_texts(page: Page) -> list[str]:
+    """只读取结果卡片的可见段落；精确类名失效时再退到可见 p。"""
+    selectors = ("p.fsa-color-gray-60", "p.m-0.fsa-font-size-16", "p")
+    for selector in selectors:
+        locator = page.locator(selector)
+        values: list[str] = []
+        try:
+            for index in range(locator.count()):
+                item = locator.nth(index)
+                if not item.is_visible():
+                    continue
+                value = _normalise_contact_text(item.inner_text())
+                if value:
+                    values.append(value)
+        except Exception:
+            values = []
+        if any(
+            _looks_like_masked_phone(value) or _looks_like_masked_email(value)
+            for value in values
+        ):
+            return values
+    return []
+
+
 def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
     if recovery_status == "limit_reached":
         heading = _visible_text(page, LIMIT_REACHED_HEADING) or LIMIT_REACHED_HEADING
+        return RecoveryResult(recovery_status, heading, "", "", "")
+
+    if recovery_status == "account_disabled":
+        heading = _visible_text(page, ACCOUNT_DISABLED_HEADING) or ACCOUNT_DISABLED_HEADING
         return RecoveryResult(recovery_status, heading, "", "", "")
 
     if recovery_status == "account_not_found":
@@ -1112,13 +1563,11 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
     heading = _visible_text(page, "Retrieve Your Log-in Information")
     masked_phone = ""
     masked_email = ""
-    for value in (line.strip() for line in page.locator("body").inner_text().splitlines()):
-        if not value:
-            continue
-        if "@" in value and not masked_email:
+    for value in _visible_contact_texts(page):
+        if _looks_like_masked_phone(value) and not masked_phone:
+            masked_phone = value
+        elif _looks_like_masked_email(value) and not masked_email:
             masked_email = value
-        elif ("*" in value or "•" in value) and re.search(r"\d{4}\s*$", value):
-            masked_phone = masked_phone or value
     recovery_method = _visible_text(page, "Recover my account with a photo ID")
     return RecoveryResult(
         recovery_status,
@@ -1130,14 +1579,21 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
 
 
 class BrowserRecoverySession:
-    """第十一步 worker 会话；每个线程拥有独立浏览器和缓存目录。"""
+    """第十五步 worker 会话；每个线程拥有独立浏览器和缓存目录。"""
 
-    def __init__(self, worker_number: int, backend: str = "playwright") -> None:
+    def __init__(
+        self,
+        worker_number: int,
+        backend: str = "playwright",
+        display_mode: str = "无头",
+    ) -> None:
         backend = backend.strip().casefold()
         if backend not in BROWSER_BACKENDS:
             raise ValueError(f"浏览器后端必须是：{', '.join(BROWSER_BACKENDS)}")
         self.worker_number = worker_number
         self.backend = backend
+        self.display_mode = _normalise_display_mode(display_mode)
+        self.headless = _is_headless(self.display_mode)
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._browser_use_host: BrowserUseBrowserHost | None = None
@@ -1157,7 +1613,9 @@ class BrowserRecoverySession:
         self._playwright = sync_playwright().start()
         try:
             if self.backend == "browser-use":
-                self._browser_use_host = BrowserUseBrowserHost(self.worker_number)
+                self._browser_use_host = BrowserUseBrowserHost(
+                    self.worker_number, headless=self.headless
+                )
                 self._browser_use_host.start()
                 try:
                     browser = self._playwright.chromium.connect_over_cdp(
@@ -1170,13 +1628,14 @@ class BrowserRecoverySession:
                     external_browser=True,
                     mode=(
                         "browser-use 独立 Chrome "
-                        f"(worker {self.worker_number}, AutomationControlled 已关闭)"
+                        f"{self.display_mode}模式 (worker {self.worker_number}, "
+                        "AutomationControlled 已关闭)"
                     ),
                     owns_browser=False,
                     dedicated_profile=True,
                 )
             else:
-                launch = launch_browser(self._playwright)
+                launch = launch_browser(self._playwright, headless=self.headless)
             self._browser = launch.browser
             self._external_browser = launch.external_browser
             self._owns_browser = launch.owns_browser
@@ -1189,15 +1648,12 @@ class BrowserRecoverySession:
                 self._context = browser_contexts[0]
             else:
                 self._context = self._browser.new_context(
-                    viewport={"width": 1440, "height": 900}, locale="en-US"
+                    viewport=dict(SMALL_VIEWPORT_SIZE), locale="en-US"
                 )
                 self._owns_context = True
             pages = list(getattr(self._context, "pages", []))
             self._page = pages[-1] if pages else self._context.new_page()
-            try:
-                self._page.set_viewport_size({"width": 1440, "height": 900})
-            except Exception:
-                pass
+            self._configure_page(self._page)
             if self._page.evaluate("navigator.webdriver === true"):
                 raise RuntimeError(
                     "检测到浏览器处于 Playwright 自动化启动模式；"
@@ -1206,6 +1662,7 @@ class BrowserRecoverySession:
             if self._dedicated_profile:
                 # 上次进程若被强制关闭，先消除可能残留的 cookie、cache 和 storage。
                 self._clear_browser_data_and_blank()
+            self._hide_browser_window()
         except Exception:
             self.close()
             raise
@@ -1219,11 +1676,66 @@ class BrowserRecoverySession:
                 pass
             self._page = None
 
+    def _configure_page(self, page: Page) -> None:
+        try:
+            page.set_viewport_size(dict(SMALL_VIEWPORT_SIZE))
+        except Exception:
+            pass
+        if not self.headless or self._browser is None or self._context is None:
+            return
+        user_agent = _normal_chrome_user_agent(self._browser.version)
+        try:
+            session = self._context.new_cdp_session(page)
+            try:
+                session.send(
+                    "Emulation.setUserAgentOverride",
+                    {
+                        "userAgent": user_agent,
+                        "acceptLanguage": "en-US,en;q=0.9",
+                        "platform": "Win32",
+                    },
+                )
+            finally:
+                session.detach()
+        except Exception as exc:
+            raise RuntimeError("无法为无头 Chrome 设置正常浏览器标识") from exc
+
+    def _hide_browser_window(self) -> None:
+        if not self.headless or os.name != "nt":
+            return
+        owned_processes: set[int] = set()
+        if (
+            self._browser_use_host is not None
+            and self._browser_use_host._browser_pid is not None
+        ):
+            try:
+                import psutil
+
+                root_process = psutil.Process(self._browser_use_host._browser_pid)
+                owned_processes = {
+                    root_process.pid,
+                    *(child.pid for child in root_process.children(recursive=True)),
+                }
+            except Exception:
+                owned_processes = set()
+        else:
+            owned_processes = _chrome_process_ids("--window-position=-32000,-32000")
+        for _attempt in range(10):
+            if _hide_windows_for_processes(owned_processes):
+                return
+            time.sleep(0.05)
+            if self._browser_use_host is None:
+                owned_processes = _chrome_process_ids(
+                    "--window-position=-32000,-32000"
+                )
+
     def _new_blank_page(self) -> Page:
         if self._context is None:
             raise RuntimeError("浏览器处理会话尚未启动")
         self._close_page()
         self._page = self._context.new_page()
+        self._configure_page(self._page)
+        self._hide_browser_window()
         return self._page
 
     def _ensure_form_page(
@@ -1243,6 +1755,7 @@ class BrowserRecoverySession:
         except Exception:
             form_ready = False
         if not form_ready:
+            self._hide_browser_window()
             _report_stage(progress_callback, "正在打开 StudentAid 页面")
             step_1_open_retrieve_account_details(page, stop_event)
         return page
@@ -1326,7 +1839,7 @@ class BrowserRecoverySession:
                     _report_stage(progress_callback, "页面已打开，正在填写资料")
                 step_2_fill_account_details(page, item.details, stop_event)
                 _report_stage(progress_callback, "资料已填写，正在点击 Continue")
-                step_3_click_continue(page, stop_event)
+                step_3_click_continue(page, stop_event, progress_callback)
                 _report_stage(progress_callback, "已提交，正在等待官方结果")
                 status = step_4_judge_password_recovery(
                     page, stop_event, progress_callback
@@ -1356,7 +1869,7 @@ class BrowserRecoverySession:
         """必须在结果写入 SQLite/累计 CSV 后调用。"""
         _check_stop(stop_event)
         page = self._page
-        if result_code in {"account_not_found", "limit_reached"}:
+        if result_code in {"account_not_found", "limit_reached", "account_disabled"}:
             self._clear_browser_data_and_blank(progress_callback)
             return
         if result_code != "can_recover":
@@ -1365,17 +1878,116 @@ class BrowserRecoverySession:
         if page is None or page.is_closed():
             raise RuntimeError("记录账户找回结果后页面已关闭，无法点击 Cancel")
         _report_stage(progress_callback, "结果已保存，正在点击 Cancel")
-        cancel = page.locator("#fsa_Button_ForgotUsernameCancel").first
+        cancel_matches = page.locator(
+            "span", has_text=re.compile(r"^\s*Cancel\s*$", re.IGNORECASE)
+        )
+        cancel_span = None
+        for index in range(cancel_matches.count()):
+            candidate = cancel_matches.nth(index)
+            if (
+                candidate.is_visible()
+                and candidate.inner_text().strip().casefold() == "cancel"
+            ):
+                cancel_span = candidate
+                break
+        if cancel_span is None:
+            raise RuntimeError("找不到可见的 <span>Cancel</span>")
+
+        original_url = page.url
+        parent_control = cancel_span.locator(
+            "xpath=ancestor::*[self::button or self::a or @role='button'][1]"
+        )
+        click_targets = [("Cancel 文本", cancel_span)]
+        if parent_control.count() and parent_control.is_visible():
+            click_targets.append(("Cancel 父控件", parent_control))
+
+        cancel_triggered = False
+        last_click_error: Exception | None = None
+        for target_name, target in click_targets:
+            try:
+                target.scroll_into_view_if_needed(timeout=3_000)
+                target.click(timeout=5_000)
+                page.wait_for_function(
+                    """
+                    originalUrl => {
+                        const visible = element => {
+                            const style = getComputedStyle(element);
+                            const box = element.getBoundingClientRect();
+                            return style.visibility !== "hidden"
+                                && style.display !== "none"
+                                && box.width > 0 && box.height > 0;
+                        };
+                        const resultHeadingVisible = [...document.querySelectorAll("*")]
+                            .some(element => element.textContent?.trim()
+                                === "Retrieve Your Log-in Information" && visible(element));
+                        const cancelVisible = [...document.querySelectorAll("span")]
+                            .some(element => element.textContent?.trim().toLowerCase()
+                                === "cancel" && visible(element));
+                        const formVisible = (() => {
+                            const element = document.querySelector(
+                                "#fsa_Input_ForgotUsernameFirstName"
+                            );
+                            return Boolean(element && visible(element));
+                        })();
+                        return location.href !== originalUrl || formVisible
+                            || !resultHeadingVisible || !cancelVisible;
+                    }
+                    """,
+                    arg=original_url,
+                    timeout=6_000,
+                )
+                cancel_triggered = True
+                _report_stage(
+                    progress_callback,
+                    f"{target_name}已实际触发，结果页已离开",
+                )
+                break
+            except Exception as exc:
+                last_click_error = exc
+
+        if not cancel_triggered:
+            # Angular 模板偶尔拦截合成鼠标事件；原生 click 会在可见 span/父控件上
+            # 冒泡到同一个 Angular 处理器。仍必须验证结果页确实发生变化。
+            try:
+                cancel_span.evaluate(
+                    """
+                    element => (element.closest("button,a,[role='button']") || element).click()
+                    """
+                )
+                page.wait_for_function(
+                    """
+                    () => {
+                        const visible = element => {
+                            const style = getComputedStyle(element);
+                            const box = element.getBoundingClientRect();
+                            return style.visibility !== "hidden"
+                                && style.display !== "none"
+                                && box.width > 0 && box.height > 0;
+                        };
+                        return ![...document.querySelectorAll("span")].some(
+                            element => element.textContent?.trim().toLowerCase()
+                                === "cancel" && visible(element)
+                        );
+                    }
+                    """,
+                    timeout=6_000,
+                )
+                cancel_triggered = True
+                _report_stage(progress_callback, "Cancel 原生事件已实际触发")
+            except Exception as exc:
+                last_click_error = exc
+
+        if not cancel_triggered:
+            raise RuntimeError("可见 Cancel 点击后结果页没有变化") from last_click_error
+
         try:
-            cancel.wait_for(state="visible", timeout=5_000)
+            page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=5_000)
         except Exception:
-            cancel = page.get_by_role("button", name="Cancel", exact=True).first
-            cancel.wait_for(state="visible", timeout=10_000)
-        box = cancel.bounding_box()
-        if not box:
-            raise RuntimeError("无法取得 Cancel 按钮可见坐标")
-        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=30_000)
+            _report_stage(
+                progress_callback,
+                "Cancel 已完成；正在重新打开账户找回空白表单",
+            )
+            step_1_open_retrieve_account_details(page, stop_event)
         page.wait_for_function(
             """
             () => {
@@ -1392,22 +2004,42 @@ class BrowserRecoverySession:
             """,
             timeout=15_000,
         )
-        _report_stage(progress_callback, "Cancel 已完成，空白表单已就绪")
+        _report_stage(progress_callback, "Cancel 已确认完成，空白表单已就绪")
 
     def recover_after_cleanup_error(self) -> None:
         self._close_page()
 
     def close(self) -> None:
+        if self.backend == "browser-use":
+            # browser-use 使用一次性 user-data-dir。先结束精确 PID 树并删除整个
+            # profile，比在失效 CDP 页面上逐项清理更彻底，也避免无头失败页令
+            # Playwright disconnect/stop 长时间等待。
+            self._page = None
+            self._context = None
+            self._owns_context = False
+            self._browser = None
+            self._external_browser = False
+            self._owns_browser = False
+            if self._browser_use_host is not None:
+                try:
+                    self._browser_use_host.close()
+                finally:
+                    self._browser_use_host = None
+            if self._playwright is not None:
+                try:
+                    self._playwright.stop()
+                except Exception:
+                    pass
+                self._playwright = None
+            self._dedicated_profile = False
+            return
+
         if self._context is not None and self._browser is not None:
             try:
                 self._clear_browser_data_and_blank()
             except Exception:
                 pass
-        if self.backend == "browser-use":
-            # 保留最后一个 about:blank，避免 browser-use 看门狗在结束前自动补建标签页。
-            self._page = None
-        else:
-            self._close_page()
+        self._close_page()
         if self._context is not None and self._owns_context:
             try:
                 self._context.close()
@@ -1429,11 +2061,6 @@ class BrowserRecoverySession:
             except Exception:
                 pass
             self._playwright = None
-        if self._browser_use_host is not None:
-            try:
-                self._browser_use_host.close()
-            finally:
-                self._browser_use_host = None
         self._dedicated_profile = False
 
 
@@ -1570,6 +2197,9 @@ class DatabaseWriter:
 
             CREATE INDEX IF NOT EXISTS idx_records_batch_status
                 ON records(batch_id, status, id);
+
+            CREATE INDEX IF NOT EXISTS idx_records_batch_ssn_status
+                ON records(batch_id, ssn, status);
             """
         )
 
@@ -1595,6 +2225,7 @@ class DatabaseWriter:
         if action == "insert_records":
             batch_id = str(payload["batch_id"])
             work_items: list[WorkItem] = []
+            queued_keys: set[str] = set()
             records: Sequence[ImportedRecord] = payload["records"]
             for record in records:
                 details = record.details
@@ -1622,7 +2253,12 @@ class DatabaseWriter:
                         _now_iso() if record.import_error else None,
                     ),
                 )
-                if details is not None and not record.import_error:
+                if (
+                    details is not None
+                    and not record.import_error
+                    and details.ssn not in queued_keys
+                ):
+                    queued_keys.add(details.ssn)
                     work_items.append(
                         WorkItem(
                             int(cursor.lastrowid), details, record.source_file,
@@ -1667,6 +2303,58 @@ class DatabaseWriter:
                 ),
             )
             return None
+
+        if action == "mark_completed_group":
+            result = payload["result"]
+            cursor = connection.execute(
+                """
+                UPDATE records
+                SET status='completed', result_code=?, result_heading=?,
+                    masked_phone=?, masked_email=?, recovery_method=?, error='',
+                    finished_at=?
+                WHERE batch_id=? AND ssn=?
+                  AND status IN ('pending', 'processing')
+                """,
+                (
+                    result.result_code, result.heading, result.masked_phone,
+                    result.masked_email, result.recovery_method, _now_iso(),
+                    payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
+
+        if action == "mark_retry_group":
+            cursor = connection.execute(
+                """
+                UPDATE records
+                SET status='pending', error=?, started_at=NULL, finished_at=NULL
+                WHERE batch_id=? AND ssn=?
+                  AND status IN ('pending', 'processing')
+                """,
+                (
+                    payload.get("error", ""), payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
+
+        if action in {"mark_failed_group", "mark_stopped_group"}:
+            status = "failed" if action == "mark_failed_group" else "stopped"
+            allowed_statuses = (
+                "('pending', 'processing', 'completed')"
+                if action == "mark_failed_group"
+                else "('pending', 'processing')"
+            )
+            cursor = connection.execute(
+                f"""
+                UPDATE records SET status=?, error=?, finished_at=?
+                WHERE batch_id=? AND ssn=? AND status IN {allowed_statuses}
+                """,
+                (
+                    status, payload.get("error", ""), _now_iso(),
+                    payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
 
         if action in {"mark_failed", "mark_stopped"}:
             status = "failed" if action == "mark_failed" else "stopped"
@@ -1779,7 +2467,7 @@ SessionFactory = Callable[..., Any]
 
 
 class BatchEngine:
-    """第十一步并发处理：每个 worker 独立浏览器，写库由专用线程串行化。"""
+    """第十二步并发处理：每个 worker 使用所选后端和显示模式。"""
 
     def __init__(
         self,
@@ -1804,10 +2492,12 @@ class BatchEngine:
         output_target: Path,
         thread_count: int = 2,
         backend: str = "playwright",
+        display_mode: str = "无头",
     ) -> None:
         input_path = input_path.resolve()
         output_directory, output_path = resolve_output_target(output_target)
         backend = backend.strip().casefold()
+        display_mode = _normalise_display_mode(display_mode)
         if not input_path.is_file():
             raise FileNotFoundError(f"输入文件不存在：{input_path}")
         if input_path == output_path:
@@ -1824,7 +2514,7 @@ class BatchEngine:
         self._stop_event.clear()
         self._coordinator = threading.Thread(
             target=self._run,
-            args=(input_path, output_path, thread_count, backend),
+            args=(input_path, output_path, thread_count, backend, display_mode),
             name="studentaid-coordinator",
             daemon=False,
         )
@@ -1865,23 +2555,26 @@ class BatchEngine:
         self._emit("progress", **payload)
         return payload
 
-    def _new_session(self, worker_number: int, backend: str) -> Any:
+    def _new_session(
+        self, worker_number: int, backend: str, display_mode: str
+    ) -> Any:
         if self._session_factory is BrowserRecoverySession:
-            return self._session_factory(worker_number, backend)
+            return self._session_factory(worker_number, backend, display_mode)
         return self._session_factory(worker_number)
 
     def _worker_loop(
         self,
         worker_number: int,
         backend: str,
-        tasks: queue.Queue[WorkItem | None],
+        display_mode: str,
+        tasks: queue.Queue[tuple[WorkItem, int] | None],
         writer: DatabaseWriter,
         batch_id: str,
         total: int,
         input_path: Path,
         output_path: Path,
     ) -> None:
-        session = self._new_session(worker_number, backend)
+        session = self._new_session(worker_number, backend, display_mode)
         try:
             session.start()
             self._emit(
@@ -1905,12 +2598,13 @@ class BatchEngine:
         try:
             while not self._stop_event.is_set():
                 try:
-                    item = tasks.get(timeout=0.2)
+                    queued_task = tasks.get(timeout=0.2)
                 except queue.Empty:
                     continue
-                if item is None:
+                if queued_task is None:
                     tasks.task_done()
                     break
+                item, queue_attempt = queued_task
                 if self._stop_event.is_set():
                     tasks.task_done()
                     break
@@ -1921,13 +2615,45 @@ class BatchEngine:
                     "log", message=f"记录 #{record_id}：{stage}"
                 )
                 try:
-                    result = session.process(item, self._stop_event, progress)
-                    writer.request(
-                        "mark_completed", record_id=item.record_id, result=result
+                    try:
+                        result = session.process(item, self._stop_event, progress)
+                    except StopRequested:
+                        raise
+                    except Exception as process_exc:
+                        if queue_attempt >= MAX_QUEUE_ATTEMPTS:
+                            raise
+                        recover = getattr(
+                            session, "recover_after_cleanup_error", None
+                        )
+                        if callable(recover):
+                            try:
+                                recover()
+                            except Exception:
+                                pass
+                        retry_group = writer.request(
+                            "mark_retry_group", batch_id=batch_id,
+                            ssn=item.details.ssn, error=_clean_error(process_exc),
+                        )
+                        tasks.put((item, queue_attempt + 1))
+                        self._emit(
+                            "log",
+                            message=(
+                                f"记录 #{item.record_id}：本轮未取得明确结果，"
+                                f"同组 {retry_group} 条已回到队尾；稍后执行"
+                                f"第 {queue_attempt + 1}/{MAX_QUEUE_ATTEMPTS} 轮。"
+                            ),
+                        )
+                        continue
+                    completed_group = writer.request(
+                        "mark_completed_group", batch_id=batch_id,
+                        ssn=item.details.ssn, result=result,
                     )
                     self._emit(
                         "log",
-                        message=f"记录 #{item.record_id}：明确结果已实时写入 SQLite。",
+                        message=(
+                            f"记录 #{item.record_id}：明确结果已实时写入 SQLite，"
+                            f"同组完成 {completed_group} 条。"
+                        ),
                     )
                     appended = append_cumulative_result(output_path, item, result)
                     if appended:
@@ -1977,11 +2703,13 @@ class BatchEngine:
                             recover()
                 except StopRequested as exc:
                     writer.request(
-                        "mark_stopped", record_id=item.record_id, error=_clean_error(exc)
+                        "mark_stopped_group", batch_id=batch_id,
+                        ssn=item.details.ssn, error=_clean_error(exc),
                     )
                 except Exception as exc:
                     writer.request(
-                        "mark_failed", record_id=item.record_id, error=_clean_error(exc)
+                        "mark_failed_group", batch_id=batch_id,
+                        ssn=item.details.ssn, error=_clean_error(exc),
                     )
                     self._emit(
                         "log",
@@ -2017,6 +2745,7 @@ class BatchEngine:
         output_path: Path,
         thread_count: int,
         backend: str,
+        display_mode: str,
     ) -> None:
         batch_id = uuid.uuid4().hex
         output_directory = output_path.parent
@@ -2025,6 +2754,14 @@ class BatchEngine:
         total = 0
         try:
             self._emit("log", message="正在读取累计输出第一列并同步输入文件……")
+            if ensure_cumulative_output_quote_all(output_path):
+                self._emit(
+                    "log",
+                    message=(
+                        "累计 CSV 已迁移为全字段双引号格式；"
+                        "LibreOffice 打开时生日保持单列 MM/DD/YYYY。"
+                    ),
+                )
             existing_keys = read_output_first_column_keys(output_path)
             removed_before_start = remove_input_rows_by_keys(input_path, existing_keys)
             if removed_before_start:
@@ -2038,6 +2775,25 @@ class BatchEngine:
                 if "没有可导入的资料行" not in str(exc):
                     raise
                 records = []
+            missing_required = [
+                record
+                for record in records
+                if record.import_error.startswith("缺少必填字段：")
+            ]
+            if missing_required:
+                removed_missing = remove_input_rows_by_locations(
+                    input_path, missing_required
+                )
+                self._emit(
+                    "log",
+                    message=(
+                        f"输入文件已直接删除 {removed_missing} 条缺少必填字段的资料；"
+                        "这些资料不写累计输出、不进入浏览器。"
+                    ),
+                )
+                records = [
+                    record for record in records if record not in missing_required
+                ]
             total = len(records)
             if self._stop_event.is_set():
                 raise StopRequested("导入阶段已停止")
@@ -2054,29 +2810,31 @@ class BatchEngine:
             work_items: list[WorkItem] = writer.request(
                 "insert_records", batch_id=batch_id, records=records
             )
-            invalid_count = len(records) - len(work_items)
+            invalid_count = sum(bool(record.import_error) for record in records)
+            valid_count = len(records) - invalid_count
+            duplicate_count = valid_count - len(work_items)
             self._emit(
                 "log",
                 message=(
-                    f"输入剩余 {len(records)} 条；可处理 {len(work_items)} 条，"
-                    f"格式错误 {invalid_count} 条。后端 {backend}，"
-                    f"处理线程 {thread_count}。"
+                    f"输入剩余 {len(records)} 条；唯一浏览器任务 {len(work_items)} 个，"
+                    f"同第一列重复 {duplicate_count} 条，格式错误 {invalid_count} 条。"
+                    f"后端 {backend}，"
+                    f"显示 {display_mode}，处理线程 {thread_count}。"
                 ),
             )
             self._publish_progress(writer, batch_id, total)
 
-            tasks: queue.Queue[WorkItem | None] = queue.Queue()
+            tasks: queue.Queue[tuple[WorkItem, int] | None] = queue.Queue()
             for item in work_items:
-                tasks.put(item)
+                tasks.put((item, 1))
             worker_count = min(thread_count, len(work_items))
-            for _ in range(worker_count):
-                tasks.put(None)
             workers = [
                 threading.Thread(
                     target=self._worker_loop,
                     args=(
                         number,
                         backend,
+                        display_mode,
                         tasks,
                         writer,
                         batch_id,
@@ -2091,6 +2849,16 @@ class BatchEngine:
             ]
             for worker in workers:
                 worker.start()
+            while workers and not self._stop_event.is_set():
+                with tasks.all_tasks_done:
+                    unfinished_tasks = tasks.unfinished_tasks
+                if unfinished_tasks == 0 or not any(
+                    worker.is_alive() for worker in workers
+                ):
+                    break
+                time.sleep(0.1)
+            for _ in range(worker_count):
+                tasks.put(None)
             for worker in workers:
                 worker.join()
 
@@ -2141,7 +2909,7 @@ class BatchEngine:
 
 
 class StudentAidApp:
-    """第十一步稳定版桌面 GUI。"""
+    """第十五步批量输入兼容版桌面 GUI。"""
 
     def __init__(self) -> None:
         import tkinter as tk
@@ -2159,6 +2927,7 @@ class StudentAidApp:
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.cwd() / CUMULATIVE_OUTPUT_FILENAME))
         self.backend_var = tk.StringVar(value="browser-use")
+        self.display_mode_var = tk.StringVar(value="无头")
         self.thread_var = tk.StringVar(value="2")
         self.status_var = tk.StringVar(value="就绪")
         self.progress_text_var = tk.StringVar(value="总数 0 | 完成 0 | 失败 0 | 停止 0")
@@ -2175,7 +2944,7 @@ class StudentAidApp:
         main = ttk.Frame(self.root, padding=16)
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
-        main.rowconfigure(7, weight=1)
+        main.rowconfigure(8, weight=1)
 
         ttk.Label(main, text="导入文件：").grid(row=0, column=0, sticky="w", pady=6)
         self.input_entry = ttk.Entry(main, textvariable=self.input_var)
@@ -2201,16 +2970,28 @@ class StudentAidApp:
         ttk.Label(main, text="browser-use 和 playwright 都使用每线程独立浏览器。")\
             .grid(row=2, column=1, sticky="w", padx=(180, 0), pady=6)
 
-        ttk.Label(main, text="处理线程数：").grid(row=3, column=0, sticky="w", pady=6)
+        ttk.Label(main, text="浏览器显示：").grid(row=3, column=0, sticky="w", pady=6)
+        self.display_mode_combo = ttk.Combobox(
+            main,
+            textvariable=self.display_mode_var,
+            values=DISPLAY_MODES,
+            width=18,
+            state="readonly",
+        )
+        self.display_mode_combo.grid(row=3, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(main, text="窗口=900x720 小窗口；无头=不显示浏览器窗口。")\
+            .grid(row=3, column=1, sticky="w", padx=(180, 0), pady=6)
+
+        ttk.Label(main, text="处理线程数：").grid(row=4, column=0, sticky="w", pady=6)
         self.thread_spin = ttk.Spinbox(
             main, from_=1, to=8, textvariable=self.thread_var, width=10
         )
-        self.thread_spin.grid(row=3, column=1, sticky="w", padx=8, pady=6)
+        self.thread_spin.grid(row=4, column=1, sticky="w", padx=8, pady=6)
         ttk.Label(main, text="默认 2 线程；每个线程独立缓存、页面和浏览器进程。")\
-            .grid(row=3, column=1, sticky="w", padx=(100, 0), pady=6)
+            .grid(row=4, column=1, sticky="w", padx=(100, 0), pady=6)
 
         button_bar = ttk.Frame(main)
-        button_bar.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 8))
+        button_bar.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(10, 8))
         self.start_button = ttk.Button(button_bar, text="开始", command=self._start)
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(
@@ -2220,13 +3001,13 @@ class StudentAidApp:
         ttk.Label(button_bar, textvariable=self.status_var).pack(side="right")
 
         self.progress = ttk.Progressbar(main, mode="determinate", maximum=1, value=0)
-        self.progress.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(2, 4))
+        self.progress.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(2, 4))
         ttk.Label(main, textvariable=self.progress_text_var).grid(
-            row=6, column=0, columnspan=3, sticky="w", pady=(0, 8)
+            row=7, column=0, columnspan=3, sticky="w", pady=(0, 8)
         )
 
         log_frame = ttk.LabelFrame(main, text="运行日志（不显示 SSN 和原始资料）", padding=8)
-        log_frame.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        log_frame.grid(row=8, column=0, columnspan=3, sticky="nsew")
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
         self.log_text = self.tk.Text(log_frame, wrap="word", state="disabled")
@@ -2269,6 +3050,7 @@ class StudentAidApp:
         self.input_entry.configure(state=normal_or_disabled)
         self.output_entry.configure(state=normal_or_disabled)
         self.backend_combo.configure(state="disabled" if running else "readonly")
+        self.display_mode_combo.configure(state="disabled" if running else "readonly")
         self.thread_spin.configure(state=normal_or_disabled)
         self.input_button.configure(state=normal_or_disabled)
         self.output_button.configure(state=normal_or_disabled)
@@ -2281,7 +3063,10 @@ class StudentAidApp:
             output_target = Path(self.output_var.get().strip())
             thread_count = int(self.thread_var.get().strip())
             backend = self.backend_var.get().strip()
-            self.engine.start(input_path, output_target, thread_count, backend)
+            display_mode = self.display_mode_var.get().strip()
+            self.engine.start(
+                input_path, output_target, thread_count, backend, display_mode
+            )
         except Exception as exc:
             self.messagebox.showerror(APP_TITLE, _clean_error(exc))
             return
@@ -2291,7 +3076,8 @@ class StudentAidApp:
         self.status_var.set("运行中")
         self._set_running(True)
         self._append_log(
-            f"批次已启动：后端 {self.backend_var.get()}，线程 {self.thread_var.get()}。"
+            f"批次已启动：后端 {self.backend_var.get()}，"
+            f"显示 {self.display_mode_var.get()}，线程 {self.thread_var.get()}。"
         )
 
     def _stop(self) -> None:

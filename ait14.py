@@ -1,5 +1,73 @@
 """
-StudentAid 浏览器自动化工具 v7。
+StudentAid 浏览器自动化工具 v14。
+
+2026-08-08 第十九步动态输入列与 SSN 页面校验版更新：
+1. 无表头 DOB 输入只要求前四列为 SSN、DOB、First Name、Last Name；第 5 列及
+   后续任意列不再合并到 Address，而是按原顺序逐列透传到累计 CSV，最后再追加四个
+   页面结果字段。原五列输入仍输出九列，七列输入自然输出十一列。
+2. 点击 Continue 后若页面显示 ``Enter a valid Social Security number.``，立即将
+   该完整文案作为正常明确结果输出，不再反复清页重填或进入队尾重试。
+3. 拆分月/日/年旧输入、生日 ``MM/DD/YYYY``、两个 Step18 状态、Cancel、浏览器
+   复用、清缓存、累计去重和任意正整数线程等既有逻辑保持不变。
+
+2026-08-08 第十八步新增明确状态与任意线程版更新：
+1. 点击 Continue 后若出现 ``Account Lookup Issue: Get Help``，将该完整文案作为
+   正常明确结果写入累计 CSV，随后沿用终态清理流程处理下一条。
+2. 点击 Continue 后若出现 ``We are unable to retrieve your log-in information. Access
+   your account by recovering your account with a photo ID.``，将该完整文案作为正常
+   明确结果写入累计 CSV，不再误入普通 Retrieve 联系方式提取或等待超时。
+3. GUI 线程输入改为可直接填写任意正整数，批处理层同步移除 8 线程硬上限；默认值、
+   每线程独立浏览器、停止清缓存、结果落盘和输入删除等既有逻辑保持不变。
+
+2026-08-08 第十七步瞬时失败队尾重试版更新：
+1. 浏览器任务完成三次页面会话重建后仍未取得明确结果时，不再立即作为本批终态
+   失败；任务会回到队尾，先让其余资料继续处理，避免单条慢响应持续占用线程。
+2. 每个唯一任务最多执行三轮队列尝试，每轮仍保留原有三次页面清理、重开、重填；
+   下一轮会在当前队列后方执行，让官网瞬时故障有充分恢复时间。
+3. SQLite 新增同组 retry 状态回退：代表任务与同第一列重复行一起回到 pending，
+   attempt_count 继续累计；最终明确结果仍只追加一行并一次删除全部匹配输入行。
+4. 协调器改为等待动态队列真正清空后再发送线程结束信号，保证运行中追加到队尾的
+   重试任务不会落在结束信号之后而被遗漏；停止按钮仍可立即结束并保留未完成输入。
+
+2026-08-08 第十六步大批量去重稳定版更新：
+1. 同一批输入按规范化后的第一列只创建一个浏览器任务；重复资料不再被 8 个线程
+   同时领取，避免同一 SSN 重复打开页面、重复点击 Continue 和重复触发官网限流。
+2. 唯一任务取得明确结果后，SQLite 会把同一批次、同一第一列的全部重复记录一起
+   标记完成；累计 CSV 仍只写一行，输入文件仍一次删除全部匹配行。
+3. 唯一任务失败或停止时，同组重复记录一起进入相同终态并保留在输入文件，后续
+   批次可以整体重试，不会出现没有队列任务却长期停在 pending 的情况。
+4. 累计 CSV 启动规范化现在同时删除全空物理行；即使文件已经是全字段双引号格式，
+   也会清除文件开头或中间的空白行，保持固定 9 列数据连续。
+
+2026-08-08 第十五步批量输入兼容版更新：
+1. 兼容 ``MM/DD/YYY`` 或 ``MM-DD-YYY`` 的三位年份：仅当补前导 ``1`` 后落在
+   1900 到当前年份且能组成真实日期时才接受，避免把其他错误日期静默改写。
+2. First Name、Last Name、Month、Day、Year、SSN 任意必填项为空时，直接从输入
+   文件删除该源行，不写累计输出，也不启动浏览器处理该行。
+3. 输入处理发生在校验阶段；累计输出生日仍严格为单列 ``MM/DD/YYYY``，
+   其他无法可靠恢复的格式错误继续保留在输入文件，不会被误删。
+
+2026-08-08 第十四步生日格式修复版更新：
+1. 累计输出第 2 列生日强制统一为 ``MM/DD/YYYY``，月份和日期始终补足两位。
+2. 不再保留五列输入中的英文月份、短日期或其他原始显示格式；输入可以继续使用
+   支持的多种生日写法，但输出只采用校验后的 month/day/year 生成单列标准日期。
+3. 七列拆分生日输入仍按月、日、年读取，累计 CSV 不会把生日拆成三列；每行继续
+   固定为 5 个资料列加 4 个结果列，共 9 列。
+4. 现场已有累计 CSV 的 17 条生日已全部是单列 ``MM/DD/YYYY``，无需重写现有结果。
+
+2026-08-08 第十三步联系方式修复版更新：
+1. 修复找回结果页手机号漏记：StudentAid 实际掩码字符为 ``⦁``（U+2981），
+   旧版只识别 ``*`` 和 ``•``，导致 ``(⦁⦁⦁) ⦁⦁⦁ 8139`` 未写入累计 CSV。
+2. 联系方式改为优先读取结果卡片中可见的 ``p.fsa-color-gray-60``，手机号和
+   邮箱分别按掩码格式判断；页面有值就原样记录，没有就严格保持空白。
+3. 兜底扫描也只限定在可见 ``p`` 元素，避免把页脚邮箱或页面其他文字误当成
+   找回邮箱；兼容 ``⦁``、``•``、``●`` 和 ``*`` 掩码字符。
+4. Retrieve 的 Cancel 改为直接点击可见 ``<span>Cancel</span>``，并验证结果页
+   实际离开；旧版仅发出按钮坐标点击，现场存在没有点上的情况。点击成功后复用同一个
+   worker、浏览器、页面会话和空白表单继续填下一条，不清缓存、不重启 Chrome。
+5. Account Not Found 保存后清除全部浏览器数据、回到 about:blank，下一条才重新打开
+   指定网址；这条清理规则不用于 Retrieve。
+6. 保持累计输出、明确结果后删除输入行，以及启动时按累计 CSV 第一列清理输入行。
 
 2026-08-08 第十二步无头稳定版更新：
 1. GUI 新增“浏览器显示”下拉框，选项严格为“窗口”和“无头”；默认“无头”。
@@ -124,12 +192,20 @@ except ImportError:  # GUI 仍可启动，并在开始处理时给出明确错�
     sync_playwright = None
 
 
-APP_TITLE = "StudentAid 批量处理工具 - 第十二步无头稳定版"
+APP_TITLE = "StudentAid 批量处理工具 - 第十九步动态列与SSN校验版"
 DATABASE_FILENAME = "studentaid.sqlite3"
 CUMULATIVE_OUTPUT_FILENAME = "StudentAid累计结果.csv"
 LIMIT_REACHED_HEADING = "Limit Reached: Try Again in 24 Hours"
+ACCOUNT_DISABLED_HEADING = "Your Account Is Disabled"
+ACCOUNT_LOOKUP_ISSUE_HEADING = "Account Lookup Issue: Get Help"
+PHOTO_ID_RECOVERY_MESSAGE = (
+    "We are unable to retrieve your log-in information. "
+    "Access your account by recovering your account with a photo ID."
+)
+INVALID_SSN_MESSAGE = "Enter a valid Social Security number."
 BROWSER_BACKENDS = ("browser-use", "playwright")
 DISPLAY_MODES = ("窗口", "无头")
+MAX_QUEUE_ATTEMPTS = 3
 SMALL_WINDOW_SIZE = {"width": 900, "height": 720}
 SMALL_VIEWPORT_SIZE = {"width": 880, "height": 650}
 RETRIEVE_ACCOUNT_DETAILS_URL = (
@@ -221,6 +297,10 @@ class PageSessionExpired(RuntimeError):
 
 class PageSubmissionStalled(RuntimeError):
     """Continue 已提交但站点长时间停在 Loading，需要重建浏览器会话。"""
+
+
+class MissingRequiredField(ValueError):
+    """输入源行缺少用户指定的 StudentAid 必填字段，应直接删除。"""
 
 
 def _now_iso() -> str:
@@ -322,6 +402,24 @@ def _validate_details(
 
 def _parse_dob(value: str) -> tuple[str, str, str]:
     value = value.strip()
+    short_year = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{3})", value)
+    if short_year:
+        month, day, year_tail = short_year.groups()
+        candidates: list[date] = []
+        for restored_year in (int(f"1{year_tail}"), int(f"{year_tail}0")):
+            if not 1900 <= restored_year <= date.today().year:
+                continue
+            try:
+                candidates.append(date(restored_year, int(month), int(day)))
+            except ValueError:
+                continue
+        if len(candidates) == 1:
+            parsed = candidates[0]
+            return (
+                f"{parsed.month:02d}",
+                f"{parsed.day:02d}",
+                f"{parsed.year:04d}",
+            )
     for date_format in (
         "%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%Y/%m/%d",
         "%m/%d/%y", "%m-%d-%y", "%B %d, %Y", "%b %d, %Y",
@@ -393,12 +491,50 @@ def _row_looks_like_split_date(row: Sequence[str]) -> bool:
     if len(row) < 6:
         return False
     try:
-        _normalise_month(row[1])
-        _normalise_day(row[2])
-        _normalise_year(row[3])
+        if row[1].strip():
+            _normalise_month(row[1])
+        if row[2].strip():
+            _normalise_day(row[2])
+        if row[3].strip():
+            _normalise_year(row[3])
         return True
     except ValueError:
         return False
+
+
+def _row_looks_like_compact_date(row: Sequence[str]) -> bool:
+    """识别两种无表头紧凑布局，不改变任意顺序的带表头输入。"""
+    if len(row) < 4:
+        return False
+    for index in (1, 3):
+        try:
+            if row[index].strip():
+                _parse_dob(row[index])
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _raise_for_missing_required_fields(
+    ssn: str,
+    month: str,
+    day: str,
+    year: str,
+    first_name: str,
+    last_name: str,
+) -> None:
+    fields = (
+        ("SSN", ssn),
+        ("Month", month),
+        ("Day", day),
+        ("Year", year),
+        ("First Name", first_name),
+        ("Last Name", last_name),
+    )
+    missing = [name for name, value in fields if not str(value).strip()]
+    if missing:
+        raise MissingRequiredField("缺少必填字段：" + ", ".join(missing))
 
 
 def _parse_input_row(
@@ -428,10 +564,36 @@ def _parse_input_row(
             raise ValueError(
                 "至少需要 4 列：SSN、DOB、First Name、Last Name"
             )
-        # 旧版输入：SSN, DOB, First Name, Last Name, Address。
-        ssn, dob, first_name, last_name = row[:4]
-        month, day, year = _parse_dob(dob)
+        ssn = row[0]
+        # 同时兼容两种五列顺序：
+        # 1) SSN, DOB, First Name, Last Name, Address
+        # 2) SSN, First Name, Last Name, DOB, Address
+        second_column_error: ValueError | None = None
+        try:
+            if not row[1].strip():
+                raise ValueError("DOB 为空")
+            month, day, year = _parse_dob(row[1])
+            first_name, last_name = row[2:4]
+        except ValueError as exc:
+            second_column_error = exc
+            try:
+                if not row[3].strip():
+                    raise ValueError("DOB 为空")
+                month, day, year = _parse_dob(row[3])
+                first_name, last_name = row[1:3]
+            except ValueError:
+                if not row[1].strip():
+                    month = day = year = ""
+                    first_name, last_name = row[2:4]
+                else:
+                    raise second_column_error
         address = ",".join(row[4:]).strip()
+
+    first_name = first_name.strip()
+    last_name = last_name.strip()
+    _raise_for_missing_required_fields(
+        ssn, month, day, year, first_name, last_name
+    )
 
     return _validate_details(
         ssn, month, day, year, first_name, last_name
@@ -596,10 +758,22 @@ def _atomic_write_text_rows(
             writer.writerows(rows)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _atomic_replace_with_retry(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _atomic_replace_with_retry(source: Path, target: Path) -> None:
+    """Windows 上外部扫描器短暂占用文件时重试原子替换。"""
+    for attempt in range(1, 13):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt >= 12:
+                raise
+            time.sleep(min(0.75, 0.1 * attempt))
 
 
 def remove_input_rows_by_keys(input_path: Path, keys: set[str]) -> int:
@@ -654,7 +828,74 @@ def remove_input_rows_by_keys(input_path: Path, keys: set[str]) -> int:
                 if removed:
                     workbook.save(temporary)
                     workbook.close()
-                    os.replace(temporary, input_path)
+                    _atomic_replace_with_retry(temporary, input_path)
+                else:
+                    workbook.close()
+            finally:
+                try:
+                    workbook.close()
+                except Exception:
+                    pass
+                if temporary.exists():
+                    temporary.unlink()
+            return removed
+        raise ValueError("只支持修改 .csv、.scv、.txt 和 .xlsx 输入文件")
+
+
+def remove_input_rows_by_locations(
+    input_path: Path, records: Sequence[ImportedRecord]
+) -> int:
+    """按导入时的工作表/源行精确删除，兼容第一列 SSN 本身为空的记录。"""
+    locations = {
+        (record.source_sheet, int(record.source_row))
+        for record in records
+        if record.source_row > 0
+    }
+    if not locations:
+        return 0
+    input_path = input_path.resolve()
+    with _SOURCE_FILE_LOCK:
+        suffix = input_path.suffix.casefold()
+        if suffix in {".csv", ".scv", ".txt"}:
+            encoding, delimiter, rows = _detect_text_format(input_path)
+            kept = [
+                row
+                for row_number, row in enumerate(rows, start=1)
+                if ("", row_number) not in locations
+            ]
+            removed = len(rows) - len(kept)
+            if removed:
+                _atomic_write_text_rows(input_path, kept, encoding, delimiter)
+            return removed
+
+        if suffix == ".xlsx":
+            try:
+                from openpyxl import load_workbook
+            except ImportError as exc:
+                raise RuntimeError("修改 XLSX 需要安装 openpyxl") from exc
+            workbook = load_workbook(input_path)
+            temporary = input_path.with_name(
+                f".{input_path.stem}.{os.getpid()}.{uuid.uuid4().hex}.tmp.xlsx"
+            )
+            removed = 0
+            try:
+                for worksheet in workbook.worksheets:
+                    rows_to_delete = sorted(
+                        {
+                            row_number
+                            for sheet_name, row_number in locations
+                            if sheet_name == worksheet.title
+                            and 1 <= row_number <= worksheet.max_row
+                        },
+                        reverse=True,
+                    )
+                    for row_number in rows_to_delete:
+                        worksheet.delete_rows(row_number, 1)
+                    removed += len(rows_to_delete)
+                if removed:
+                    workbook.save(temporary)
+                    workbook.close()
+                    _atomic_replace_with_retry(temporary, input_path)
                 else:
                     workbook.close()
             finally:
@@ -673,19 +914,31 @@ def _format_output_dob(details: AccountDetails) -> str:
 
 
 def build_cumulative_output_row(item: WorkItem, result: RecoveryResult) -> list[str]:
-    """生成与实际输出参考一致的 5 个资料列 + 4 个结果列。"""
+    """透传紧凑输入的动态列，并在末尾追加四个页面结果字段。"""
     first_column = (
         item.original_fields[0] if item.original_fields else item.details.original_ssn
     )
-    original_dob = ""
-    if len(item.original_fields) >= 5 and not _row_looks_like_split_date(item.original_fields):
-        original_dob = item.original_fields[1].strip()
+    original_fields = list(item.original_fields)
+    if original_fields and _row_looks_like_compact_date(original_fields):
+        # 前四个逻辑字段固定；第 5 列起保持原列边界和顺序。
+        input_columns = [
+            first_column,
+            _format_output_dob(item.details),
+            item.details.first_name,
+            item.details.last_name,
+            *original_fields[4:],
+        ]
+    else:
+        # 旧七列拆分日期继续折叠为单列 DOB，保持既有九列输出不变。
+        input_columns = [
+            first_column,
+            _format_output_dob(item.details),
+            item.details.first_name,
+            item.details.last_name,
+            item.address,
+        ]
     return [
-        first_column,
-        original_dob or _format_output_dob(item.details),
-        item.details.first_name,
-        item.details.last_name,
-        item.address,
+        *input_columns,
         result.heading,
         result.masked_phone,
         result.masked_email,
@@ -704,7 +957,9 @@ def append_cumulative_result(
         if item.record_key and item.record_key in existing_keys:
             return False
         with output_path.open("a", encoding="utf-8-sig", newline="") as stream:
-            csv.writer(stream, lineterminator="\n").writerow(
+            csv.writer(
+                stream, lineterminator="\n", quoting=csv.QUOTE_ALL
+            ).writerow(
                 build_cumulative_output_row(item, result)
             )
             stream.flush()
@@ -712,8 +967,43 @@ def append_cumulative_result(
     return True
 
 
+def ensure_cumulative_output_quote_all(output_path: Path) -> bool:
+    """把累计 CSV 规范为非空、全字段引号，避免 LibreOffice 错误分列。"""
+    output_path = output_path.resolve()
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        return False
+    raw = output_path.read_text(encoding="utf-8-sig")
+    first_nonempty = next((line for line in raw.splitlines() if line.strip()), "")
+    _encoding, delimiter, rows = _detect_text_format(output_path)
+    nonempty_rows = [
+        row
+        for row in rows
+        if any(_cell_to_text(value).strip() for value in row)
+    ]
+    has_empty_rows = len(nonempty_rows) != len(rows)
+    needs_quote_all = bool(first_nonempty) and not first_nonempty.startswith('"')
+    if not has_empty_rows and not needs_quote_all:
+        return False
+    temporary = output_path.with_name(
+        f".{output_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.writer(
+                stream, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_ALL
+            )
+            writer.writerows(nonempty_rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _atomic_replace_with_retry(temporary, output_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return True
+
+
 def resolve_output_target(output_target: Path) -> tuple[Path, Path]:
-    """兼容旧版目录参数；GUI 第十二步直接选择累计 CSV。"""
+    """兼容旧版目录参数；GUI 第十四步直接选择累计 CSV。"""
     output_target = output_target.resolve()
     if output_target.suffix.casefold() in {".csv", ".scv", ".txt"}:
         return output_target.parent, output_target
@@ -1060,28 +1350,33 @@ def step_2_fill_account_details(
     _type_account_field(page, BIRTH_YEAR_SELECTOR, details.birth_year)
     _type_account_field(page, SSN_SELECTOR, details.ssn)
     _check_stop(stop_event)
-    page.wait_for_function(
-        """
-        () => {
-            const selectors = [
-                "#fsa_Input_ForgotUsernameFirstName",
-                "#fsa_Input_ForgotUsernameLastName",
-                "#fsa_Input_ForgotUsernameDateOfBirthMonth",
-                "#fsa_Input_ForgotUsernameDateOfBirthDay",
-                "#fsa_Input_ForgotUsernameDateOfBirthYear",
-                "#fsa_Input_ForgotUsernameSsnInput",
-            ];
-            const button = [...document.querySelectorAll("button")].find(
-                element => (element.innerText || "").trim() === "Continue"
-            );
-            return selectors.every(selector => {
-                const field = document.querySelector(selector);
-                return field && String(field.value || "").length > 0;
-            }) && button && !button.disabled;
-        }
-        """,
-        timeout=30_000,
-    )
+    try:
+        page.wait_for_function(
+            """
+            () => {
+                const selectors = [
+                    "#fsa_Input_ForgotUsernameFirstName",
+                    "#fsa_Input_ForgotUsernameLastName",
+                    "#fsa_Input_ForgotUsernameDateOfBirthMonth",
+                    "#fsa_Input_ForgotUsernameDateOfBirthDay",
+                    "#fsa_Input_ForgotUsernameDateOfBirthYear",
+                    "#fsa_Input_ForgotUsernameSsnInput",
+                ];
+                const button = [...document.querySelectorAll("button")].find(
+                    element => (element.innerText || "").trim() === "Continue"
+                );
+                return selectors.every(selector => {
+                    const field = document.querySelector(selector);
+                    return field && String(field.value || "").length > 0;
+                }) && button && !button.disabled;
+            }
+            """,
+            timeout=30_000,
+        )
+    except Exception as exc:
+        raise PageSubmissionStalled(
+            "资料已填写，但 Continue 在 30 秒内未进入可点击状态"
+        ) from exc
     page.wait_for_timeout(200)
 
 
@@ -1098,6 +1393,10 @@ def _wait_for_submission_started(page: Page, timeout_ms: int) -> bool:
                     || text.includes("Account Not Found")
                     || text.includes("Recover my account with a photo ID")
                     || text.includes("Limit Reached: Try Again in 24 Hours")
+                    || text.includes("Your Account Is Disabled")
+                    || text.includes("Account Lookup Issue: Get Help")
+                    || text.includes("We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.")
+                    || text.includes("Enter a valid Social Security number.")
                     || text.includes("An unknown error has occurred")
                     || location.pathname.endsWith("/username")
                     || (button && button.disabled);
@@ -1168,10 +1467,10 @@ def step_4_judge_password_recovery(
     stop_event: threading.Event,
     progress_callback: Callable[[str], None] | None = None,
     *,
-    timeout_ms: int = 45_000,
+    timeout_ms: int = 60_000,
     poll_interval_ms: int = 125,
     heartbeat_seconds: float = 5.0,
-    stalled_loading_seconds: float = 20.0,
+    stalled_loading_seconds: float = 60.0,
 ) -> str:
     """等待明确页面结果；持续 Loading 会触发重建会话，而不是无限转圈。"""
     started = time.monotonic()
@@ -1182,6 +1481,7 @@ def step_4_judge_password_recovery(
     while True:
         _check_stop(stop_event)
         body_text = page.evaluate("document.body?.innerText || ''")
+        normalised_body_text = re.sub(r"\s+", " ", body_text).strip()
         loading = "Loading..." in body_text
         now = time.monotonic()
         if loading:
@@ -1201,6 +1501,27 @@ def step_4_judge_password_recovery(
             if LIMIT_REACHED_HEADING in body_text:
                 _report_stage(progress_callback, f"已识别结果：{LIMIT_REACHED_HEADING}")
                 return "limit_reached"
+            if ACCOUNT_DISABLED_HEADING in body_text:
+                _report_stage(progress_callback, f"已识别结果：{ACCOUNT_DISABLED_HEADING}")
+                return "account_disabled"
+            if ACCOUNT_LOOKUP_ISSUE_HEADING in normalised_body_text:
+                _report_stage(
+                    progress_callback,
+                    f"已识别结果：{ACCOUNT_LOOKUP_ISSUE_HEADING}",
+                )
+                return "account_lookup_issue"
+            if PHOTO_ID_RECOVERY_MESSAGE in normalised_body_text:
+                _report_stage(
+                    progress_callback,
+                    f"已识别结果：{PHOTO_ID_RECOVERY_MESSAGE}",
+                )
+                return "photo_id_recovery_required"
+            if INVALID_SSN_MESSAGE in normalised_body_text:
+                _report_stage(
+                    progress_callback,
+                    f"已识别结果：{INVALID_SSN_MESSAGE}",
+                )
+                return "invalid_ssn"
             if re.search(
                 r"^\s*Account Not Found(?:\s*:\s*Create a New Account)?\s*$",
                 body_text,
@@ -1217,7 +1538,7 @@ def step_4_judge_password_recovery(
 
         elapsed = now - started
         if now >= deadline:
-            raise RuntimeError(
+            raise PageSubmissionStalled(
                 f"等待 StudentAid 明确结果超时（{timeout_ms / 1000:g} 秒）"
             )
         if elapsed >= next_heartbeat:
@@ -1237,9 +1558,89 @@ def _visible_text(page: Page, text: str) -> str:
     return locator.inner_text().strip() if locator.is_visible() else ""
 
 
+_MASK_CHARACTERS = "*•⦁●"
+_MASK_CHARACTER_CLASS = re.escape(_MASK_CHARACTERS)
+_MASKED_PHONE_RE = re.compile(
+    rf"^\(\s*[{_MASK_CHARACTER_CLASS}]{{3}}\s*\)\s*"
+    rf"[{_MASK_CHARACTER_CLASS}]{{3}}\s*\d{{4}}$"
+)
+
+
+def _normalise_contact_text(value: str) -> str:
+    """保留掩码内容，只统一 DOM 中的不可见/重复空白。"""
+    return re.sub(r"\s+", " ", value.replace("\xa0", " ")).strip()
+
+
+def _looks_like_masked_phone(value: str) -> bool:
+    return bool(_MASKED_PHONE_RE.fullmatch(_normalise_contact_text(value)))
+
+
+def _looks_like_masked_email(value: str) -> bool:
+    value = _normalise_contact_text(value)
+    if "@" not in value or not any(char in value for char in _MASK_CHARACTERS):
+        return False
+    local_part, separator, domain = value.partition("@")
+    if not separator or not local_part or not domain or " " in value:
+        return False
+    # StudentAid 只遮挡本地部分；限定为一行邮箱格式，避免页脚说明文字被误记。
+    return bool(
+        re.fullmatch(
+            rf"[A-Za-z0-9._%+\-{_MASK_CHARACTER_CLASS}]+@"
+            r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+            value,
+        )
+    )
+
+
+def _visible_contact_texts(page: Page) -> list[str]:
+    """只读取结果卡片的可见段落；精确类名失效时再退到可见 p。"""
+    selectors = ("p.fsa-color-gray-60", "p.m-0.fsa-font-size-16", "p")
+    for selector in selectors:
+        locator = page.locator(selector)
+        values: list[str] = []
+        try:
+            for index in range(locator.count()):
+                item = locator.nth(index)
+                if not item.is_visible():
+                    continue
+                value = _normalise_contact_text(item.inner_text())
+                if value:
+                    values.append(value)
+        except Exception:
+            values = []
+        if any(
+            _looks_like_masked_phone(value) or _looks_like_masked_email(value)
+            for value in values
+        ):
+            return values
+    return []
+
+
 def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
     if recovery_status == "limit_reached":
         heading = _visible_text(page, LIMIT_REACHED_HEADING) or LIMIT_REACHED_HEADING
+        return RecoveryResult(recovery_status, heading, "", "", "")
+
+    if recovery_status == "account_disabled":
+        heading = _visible_text(page, ACCOUNT_DISABLED_HEADING) or ACCOUNT_DISABLED_HEADING
+        return RecoveryResult(recovery_status, heading, "", "", "")
+
+    if recovery_status == "account_lookup_issue":
+        heading = (
+            _visible_text(page, ACCOUNT_LOOKUP_ISSUE_HEADING)
+            or ACCOUNT_LOOKUP_ISSUE_HEADING
+        )
+        return RecoveryResult(recovery_status, heading, "", "", "")
+
+    if recovery_status == "photo_id_recovery_required":
+        heading = (
+            _visible_text(page, PHOTO_ID_RECOVERY_MESSAGE)
+            or PHOTO_ID_RECOVERY_MESSAGE
+        )
+        return RecoveryResult(recovery_status, heading, "", "", "")
+
+    if recovery_status == "invalid_ssn":
+        heading = _visible_text(page, INVALID_SSN_MESSAGE) or INVALID_SSN_MESSAGE
         return RecoveryResult(recovery_status, heading, "", "", "")
 
     if recovery_status == "account_not_found":
@@ -1255,13 +1656,11 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
     heading = _visible_text(page, "Retrieve Your Log-in Information")
     masked_phone = ""
     masked_email = ""
-    for value in (line.strip() for line in page.locator("body").inner_text().splitlines()):
-        if not value:
-            continue
-        if "@" in value and not masked_email:
+    for value in _visible_contact_texts(page):
+        if _looks_like_masked_phone(value) and not masked_phone:
+            masked_phone = value
+        elif _looks_like_masked_email(value) and not masked_email:
             masked_email = value
-        elif ("*" in value or "•" in value) and re.search(r"\d{4}\s*$", value):
-            masked_phone = masked_phone or value
     recovery_method = _visible_text(page, "Recover my account with a photo ID")
     return RecoveryResult(
         recovery_status,
@@ -1273,7 +1672,7 @@ def collect_recovery_result(page: Page, recovery_status: str) -> RecoveryResult:
 
 
 class BrowserRecoverySession:
-    """第十二步 worker 会话；每个线程拥有独立浏览器和缓存目录。"""
+    """第十五步 worker 会话；每个线程拥有独立浏览器和缓存目录。"""
 
     def __init__(
         self,
@@ -1563,7 +1962,14 @@ class BrowserRecoverySession:
         """必须在结果写入 SQLite/累计 CSV 后调用。"""
         _check_stop(stop_event)
         page = self._page
-        if result_code in {"account_not_found", "limit_reached"}:
+        if result_code in {
+            "account_not_found",
+            "limit_reached",
+            "account_disabled",
+            "account_lookup_issue",
+            "photo_id_recovery_required",
+            "invalid_ssn",
+        }:
             self._clear_browser_data_and_blank(progress_callback)
             return
         if result_code != "can_recover":
@@ -1572,17 +1978,116 @@ class BrowserRecoverySession:
         if page is None or page.is_closed():
             raise RuntimeError("记录账户找回结果后页面已关闭，无法点击 Cancel")
         _report_stage(progress_callback, "结果已保存，正在点击 Cancel")
-        cancel = page.locator("#fsa_Button_ForgotUsernameCancel").first
+        cancel_matches = page.locator(
+            "span", has_text=re.compile(r"^\s*Cancel\s*$", re.IGNORECASE)
+        )
+        cancel_span = None
+        for index in range(cancel_matches.count()):
+            candidate = cancel_matches.nth(index)
+            if (
+                candidate.is_visible()
+                and candidate.inner_text().strip().casefold() == "cancel"
+            ):
+                cancel_span = candidate
+                break
+        if cancel_span is None:
+            raise RuntimeError("找不到可见的 <span>Cancel</span>")
+
+        original_url = page.url
+        parent_control = cancel_span.locator(
+            "xpath=ancestor::*[self::button or self::a or @role='button'][1]"
+        )
+        click_targets = [("Cancel 文本", cancel_span)]
+        if parent_control.count() and parent_control.is_visible():
+            click_targets.append(("Cancel 父控件", parent_control))
+
+        cancel_triggered = False
+        last_click_error: Exception | None = None
+        for target_name, target in click_targets:
+            try:
+                target.scroll_into_view_if_needed(timeout=3_000)
+                target.click(timeout=5_000)
+                page.wait_for_function(
+                    """
+                    originalUrl => {
+                        const visible = element => {
+                            const style = getComputedStyle(element);
+                            const box = element.getBoundingClientRect();
+                            return style.visibility !== "hidden"
+                                && style.display !== "none"
+                                && box.width > 0 && box.height > 0;
+                        };
+                        const resultHeadingVisible = [...document.querySelectorAll("*")]
+                            .some(element => element.textContent?.trim()
+                                === "Retrieve Your Log-in Information" && visible(element));
+                        const cancelVisible = [...document.querySelectorAll("span")]
+                            .some(element => element.textContent?.trim().toLowerCase()
+                                === "cancel" && visible(element));
+                        const formVisible = (() => {
+                            const element = document.querySelector(
+                                "#fsa_Input_ForgotUsernameFirstName"
+                            );
+                            return Boolean(element && visible(element));
+                        })();
+                        return location.href !== originalUrl || formVisible
+                            || !resultHeadingVisible || !cancelVisible;
+                    }
+                    """,
+                    arg=original_url,
+                    timeout=6_000,
+                )
+                cancel_triggered = True
+                _report_stage(
+                    progress_callback,
+                    f"{target_name}已实际触发，结果页已离开",
+                )
+                break
+            except Exception as exc:
+                last_click_error = exc
+
+        if not cancel_triggered:
+            # Angular 模板偶尔拦截合成鼠标事件；原生 click 会在可见 span/父控件上
+            # 冒泡到同一个 Angular 处理器。仍必须验证结果页确实发生变化。
+            try:
+                cancel_span.evaluate(
+                    """
+                    element => (element.closest("button,a,[role='button']") || element).click()
+                    """
+                )
+                page.wait_for_function(
+                    """
+                    () => {
+                        const visible = element => {
+                            const style = getComputedStyle(element);
+                            const box = element.getBoundingClientRect();
+                            return style.visibility !== "hidden"
+                                && style.display !== "none"
+                                && box.width > 0 && box.height > 0;
+                        };
+                        return ![...document.querySelectorAll("span")].some(
+                            element => element.textContent?.trim().toLowerCase()
+                                === "cancel" && visible(element)
+                        );
+                    }
+                    """,
+                    timeout=6_000,
+                )
+                cancel_triggered = True
+                _report_stage(progress_callback, "Cancel 原生事件已实际触发")
+            except Exception as exc:
+                last_click_error = exc
+
+        if not cancel_triggered:
+            raise RuntimeError("可见 Cancel 点击后结果页没有变化") from last_click_error
+
         try:
-            cancel.wait_for(state="visible", timeout=5_000)
+            page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=5_000)
         except Exception:
-            cancel = page.get_by_role("button", name="Cancel", exact=True).first
-            cancel.wait_for(state="visible", timeout=10_000)
-        box = cancel.bounding_box()
-        if not box:
-            raise RuntimeError("无法取得 Cancel 按钮可见坐标")
-        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        page.locator(FIRST_NAME_SELECTOR).wait_for(state="visible", timeout=30_000)
+            _report_stage(
+                progress_callback,
+                "Cancel 已完成；正在重新打开账户找回空白表单",
+            )
+            step_1_open_retrieve_account_details(page, stop_event)
         page.wait_for_function(
             """
             () => {
@@ -1599,7 +2104,7 @@ class BrowserRecoverySession:
             """,
             timeout=15_000,
         )
-        _report_stage(progress_callback, "Cancel 已完成，空白表单已就绪")
+        _report_stage(progress_callback, "Cancel 已确认完成，空白表单已就绪")
 
     def recover_after_cleanup_error(self) -> None:
         self._close_page()
@@ -1792,6 +2297,9 @@ class DatabaseWriter:
 
             CREATE INDEX IF NOT EXISTS idx_records_batch_status
                 ON records(batch_id, status, id);
+
+            CREATE INDEX IF NOT EXISTS idx_records_batch_ssn_status
+                ON records(batch_id, ssn, status);
             """
         )
 
@@ -1817,6 +2325,7 @@ class DatabaseWriter:
         if action == "insert_records":
             batch_id = str(payload["batch_id"])
             work_items: list[WorkItem] = []
+            queued_keys: set[str] = set()
             records: Sequence[ImportedRecord] = payload["records"]
             for record in records:
                 details = record.details
@@ -1844,7 +2353,12 @@ class DatabaseWriter:
                         _now_iso() if record.import_error else None,
                     ),
                 )
-                if details is not None and not record.import_error:
+                if (
+                    details is not None
+                    and not record.import_error
+                    and details.ssn not in queued_keys
+                ):
+                    queued_keys.add(details.ssn)
                     work_items.append(
                         WorkItem(
                             int(cursor.lastrowid), details, record.source_file,
@@ -1889,6 +2403,58 @@ class DatabaseWriter:
                 ),
             )
             return None
+
+        if action == "mark_completed_group":
+            result = payload["result"]
+            cursor = connection.execute(
+                """
+                UPDATE records
+                SET status='completed', result_code=?, result_heading=?,
+                    masked_phone=?, masked_email=?, recovery_method=?, error='',
+                    finished_at=?
+                WHERE batch_id=? AND ssn=?
+                  AND status IN ('pending', 'processing')
+                """,
+                (
+                    result.result_code, result.heading, result.masked_phone,
+                    result.masked_email, result.recovery_method, _now_iso(),
+                    payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
+
+        if action == "mark_retry_group":
+            cursor = connection.execute(
+                """
+                UPDATE records
+                SET status='pending', error=?, started_at=NULL, finished_at=NULL
+                WHERE batch_id=? AND ssn=?
+                  AND status IN ('pending', 'processing')
+                """,
+                (
+                    payload.get("error", ""), payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
+
+        if action in {"mark_failed_group", "mark_stopped_group"}:
+            status = "failed" if action == "mark_failed_group" else "stopped"
+            allowed_statuses = (
+                "('pending', 'processing', 'completed')"
+                if action == "mark_failed_group"
+                else "('pending', 'processing')"
+            )
+            cursor = connection.execute(
+                f"""
+                UPDATE records SET status=?, error=?, finished_at=?
+                WHERE batch_id=? AND ssn=? AND status IN {allowed_statuses}
+                """,
+                (
+                    status, payload.get("error", ""), _now_iso(),
+                    payload["batch_id"], payload["ssn"],
+                ),
+            )
+            return int(cursor.rowcount)
 
         if action in {"mark_failed", "mark_stopped"}:
             status = "failed" if action == "mark_failed" else "stopped"
@@ -2036,8 +2602,8 @@ class BatchEngine:
             raise FileNotFoundError(f"输入文件不存在：{input_path}")
         if input_path == output_path:
             raise ValueError("输入文件和累计输出文件不能是同一个文件")
-        if not 1 <= thread_count <= 8:
-            raise ValueError("处理线程数必须是 1-8")
+        if thread_count < 1:
+            raise ValueError("处理线程数必须是大于等于 1 的整数")
         if backend not in BROWSER_BACKENDS:
             raise ValueError(f"浏览器后端必须是：{', '.join(BROWSER_BACKENDS)}")
         output_directory.mkdir(parents=True, exist_ok=True)
@@ -2101,7 +2667,7 @@ class BatchEngine:
         worker_number: int,
         backend: str,
         display_mode: str,
-        tasks: queue.Queue[WorkItem | None],
+        tasks: queue.Queue[tuple[WorkItem, int] | None],
         writer: DatabaseWriter,
         batch_id: str,
         total: int,
@@ -2132,12 +2698,13 @@ class BatchEngine:
         try:
             while not self._stop_event.is_set():
                 try:
-                    item = tasks.get(timeout=0.2)
+                    queued_task = tasks.get(timeout=0.2)
                 except queue.Empty:
                     continue
-                if item is None:
+                if queued_task is None:
                     tasks.task_done()
                     break
+                item, queue_attempt = queued_task
                 if self._stop_event.is_set():
                     tasks.task_done()
                     break
@@ -2148,13 +2715,45 @@ class BatchEngine:
                     "log", message=f"记录 #{record_id}：{stage}"
                 )
                 try:
-                    result = session.process(item, self._stop_event, progress)
-                    writer.request(
-                        "mark_completed", record_id=item.record_id, result=result
+                    try:
+                        result = session.process(item, self._stop_event, progress)
+                    except StopRequested:
+                        raise
+                    except Exception as process_exc:
+                        if queue_attempt >= MAX_QUEUE_ATTEMPTS:
+                            raise
+                        recover = getattr(
+                            session, "recover_after_cleanup_error", None
+                        )
+                        if callable(recover):
+                            try:
+                                recover()
+                            except Exception:
+                                pass
+                        retry_group = writer.request(
+                            "mark_retry_group", batch_id=batch_id,
+                            ssn=item.details.ssn, error=_clean_error(process_exc),
+                        )
+                        tasks.put((item, queue_attempt + 1))
+                        self._emit(
+                            "log",
+                            message=(
+                                f"记录 #{item.record_id}：本轮未取得明确结果，"
+                                f"同组 {retry_group} 条已回到队尾；稍后执行"
+                                f"第 {queue_attempt + 1}/{MAX_QUEUE_ATTEMPTS} 轮。"
+                            ),
+                        )
+                        continue
+                    completed_group = writer.request(
+                        "mark_completed_group", batch_id=batch_id,
+                        ssn=item.details.ssn, result=result,
                     )
                     self._emit(
                         "log",
-                        message=f"记录 #{item.record_id}：明确结果已实时写入 SQLite。",
+                        message=(
+                            f"记录 #{item.record_id}：明确结果已实时写入 SQLite，"
+                            f"同组完成 {completed_group} 条。"
+                        ),
                     )
                     appended = append_cumulative_result(output_path, item, result)
                     if appended:
@@ -2204,11 +2803,13 @@ class BatchEngine:
                             recover()
                 except StopRequested as exc:
                     writer.request(
-                        "mark_stopped", record_id=item.record_id, error=_clean_error(exc)
+                        "mark_stopped_group", batch_id=batch_id,
+                        ssn=item.details.ssn, error=_clean_error(exc),
                     )
                 except Exception as exc:
                     writer.request(
-                        "mark_failed", record_id=item.record_id, error=_clean_error(exc)
+                        "mark_failed_group", batch_id=batch_id,
+                        ssn=item.details.ssn, error=_clean_error(exc),
                     )
                     self._emit(
                         "log",
@@ -2253,6 +2854,14 @@ class BatchEngine:
         total = 0
         try:
             self._emit("log", message="正在读取累计输出第一列并同步输入文件……")
+            if ensure_cumulative_output_quote_all(output_path):
+                self._emit(
+                    "log",
+                    message=(
+                        "累计 CSV 已迁移为全字段双引号格式；"
+                        "LibreOffice 打开时生日保持单列 MM/DD/YYYY。"
+                    ),
+                )
             existing_keys = read_output_first_column_keys(output_path)
             removed_before_start = remove_input_rows_by_keys(input_path, existing_keys)
             if removed_before_start:
@@ -2266,6 +2875,25 @@ class BatchEngine:
                 if "没有可导入的资料行" not in str(exc):
                     raise
                 records = []
+            missing_required = [
+                record
+                for record in records
+                if record.import_error.startswith("缺少必填字段：")
+            ]
+            if missing_required:
+                removed_missing = remove_input_rows_by_locations(
+                    input_path, missing_required
+                )
+                self._emit(
+                    "log",
+                    message=(
+                        f"输入文件已直接删除 {removed_missing} 条缺少必填字段的资料；"
+                        "这些资料不写累计输出、不进入浏览器。"
+                    ),
+                )
+                records = [
+                    record for record in records if record not in missing_required
+                ]
             total = len(records)
             if self._stop_event.is_set():
                 raise StopRequested("导入阶段已停止")
@@ -2282,23 +2910,24 @@ class BatchEngine:
             work_items: list[WorkItem] = writer.request(
                 "insert_records", batch_id=batch_id, records=records
             )
-            invalid_count = len(records) - len(work_items)
+            invalid_count = sum(bool(record.import_error) for record in records)
+            valid_count = len(records) - invalid_count
+            duplicate_count = valid_count - len(work_items)
             self._emit(
                 "log",
                 message=(
-                    f"输入剩余 {len(records)} 条；可处理 {len(work_items)} 条，"
-                    f"格式错误 {invalid_count} 条。后端 {backend}，"
+                    f"输入剩余 {len(records)} 条；唯一浏览器任务 {len(work_items)} 个，"
+                    f"同第一列重复 {duplicate_count} 条，格式错误 {invalid_count} 条。"
+                    f"后端 {backend}，"
                     f"显示 {display_mode}，处理线程 {thread_count}。"
                 ),
             )
             self._publish_progress(writer, batch_id, total)
 
-            tasks: queue.Queue[WorkItem | None] = queue.Queue()
+            tasks: queue.Queue[tuple[WorkItem, int] | None] = queue.Queue()
             for item in work_items:
-                tasks.put(item)
+                tasks.put((item, 1))
             worker_count = min(thread_count, len(work_items))
-            for _ in range(worker_count):
-                tasks.put(None)
             workers = [
                 threading.Thread(
                     target=self._worker_loop,
@@ -2320,6 +2949,16 @@ class BatchEngine:
             ]
             for worker in workers:
                 worker.start()
+            while workers and not self._stop_event.is_set():
+                with tasks.all_tasks_done:
+                    unfinished_tasks = tasks.unfinished_tasks
+                if unfinished_tasks == 0 or not any(
+                    worker.is_alive() for worker in workers
+                ):
+                    break
+                time.sleep(0.1)
+            for _ in range(worker_count):
+                tasks.put(None)
             for worker in workers:
                 worker.join()
 
@@ -2370,7 +3009,7 @@ class BatchEngine:
 
 
 class StudentAidApp:
-    """第十二步无头稳定版桌面 GUI。"""
+    """第十五步批量输入兼容版桌面 GUI。"""
 
     def __init__(self) -> None:
         import tkinter as tk
@@ -2444,11 +3083,9 @@ class StudentAidApp:
             .grid(row=3, column=1, sticky="w", padx=(180, 0), pady=6)
 
         ttk.Label(main, text="处理线程数：").grid(row=4, column=0, sticky="w", pady=6)
-        self.thread_spin = ttk.Spinbox(
-            main, from_=1, to=8, textvariable=self.thread_var, width=10
-        )
+        self.thread_spin = ttk.Entry(main, textvariable=self.thread_var, width=10)
         self.thread_spin.grid(row=4, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(main, text="默认 2 线程；每个线程独立缓存、页面和浏览器进程。")\
+        ttk.Label(main, text="任意正整数；每个线程独立缓存、页面和浏览器进程。")\
             .grid(row=4, column=1, sticky="w", padx=(100, 0), pady=6)
 
         button_bar = ttk.Frame(main)

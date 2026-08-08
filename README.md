@@ -1,12 +1,42 @@
-# StudentAid 批量处理工具（第十五步批量输入兼容版）
+# StudentAid 批量处理工具（第十九步动态列与 SSN 校验版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait10.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
+正式源码入口是 `ait14.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
 
-源码运行仍可双击 `启动StudentAid第十五步批量输入兼容版.cmd`。
+源码运行可双击 `启动StudentAid.cmd`。
+
+## 第十九步完成内容
+
+- 无表头紧凑输入只要求前四个逻辑列为 `SSN,DOB,First Name,Last Name`；从第 5 列起允许任意列数并逐列原样顺延，不再把地址、邮箱、电话等合并成一个 Address 字段。
+- 累计 CSV 在全部输入列后追加 `Result Heading,Masked Phone,Masked Email,Recovery Method`；因此四列输入输出 8 列、五列输入仍输出 9 列、`假资料测试2.xlsx` 的七列输入输出 11 列。
+- 第 2 列 DOB 继续强制为单列 `MM/DD/YYYY`；旧七列拆分月/日/年格式继续使用原有九列输出，带表头任意顺序输入的既有输出逻辑不变。
+- `Enter a valid Social Security number.` 作为正常明确结果输出，落盘删行后清浏览器数据并复用当前 worker 处理下一条。
+
+## 第十八步完成内容
+
+- `Account Lookup Issue: Get Help` 作为正常明确结果，完整文案写入累计 CSV 的结果列，联系方式和恢复方式留空。
+- `We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.` 作为另一种正常明确结果，完整文案写入结果列，不再等待超时。
+- 两种新终态都在结果落盘并删除输入后沿用现有终态清理逻辑：清浏览器数据、进入 `about:blank`，当前 worker 复用同一浏览器处理下一条。
+- GUI 线程数改为直接输入任意正整数，移除原来的 8 线程上限；默认仍为 2，既有浏览器后端、窗口/无头、Cancel、累计输出和队尾重试逻辑保持不变。
+
+## 第十七步完成内容
+
+- 现场发现 1 条资料在三次页面清理、重开、重填后仍未返回明确结果；旧逻辑会将其保留到整批结束后再人工重跑。
+- 新版把这类瞬时网页失败任务恢复为 pending 并放到队尾，先处理其余正常资料；每个唯一任务最多三轮队列尝试，每轮仍包含原有三次页面会话恢复。
+- 动态队列真正清空后才向工作线程发送结束信号，运行中追加的重试任务不会落在结束信号之后而被遗漏。
+- 同第一列重复行跟随代表任务整体进入重试、完成或最终失败状态；SQLite `attempt_count` 会保留实际队列轮次，累计 CSV 仍只写一行。
+- 停止按钮仍会结束当前批次、清缓存和浏览器进程，未明确完成的资料继续留在输入文件。
+
+## 第十六步完成内容
+
+- 同一批输入按规范化第一列去重，只为每个唯一值创建一个浏览器任务；重复行不再被多个线程同时领取。
+- 唯一任务明确完成后，SQLite 中同批次、同第一列的重复行整体完成，累计 CSV 仍只追加一行，输入文件一次删除全部匹配行。
+- 唯一任务失败或停止时，同组重复行一起进入相同终态并保留输入，后续可以整体重试。
+- 累计 CSV 启动规范化会清除全空物理行；全字段双引号、固定 9 列和单列 `MM/DD/YYYY` 保持不变。
+- 现场 19,372 个有效输入行实际只有 8,952 个唯一浏览器任务，本版减少 10,420 次重复请求；运行配置继续使用 `playwright + 窗口 + 8线程`。
 
 ## 第十五步完成内容
 
@@ -62,7 +92,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 双击：
 
 ```text
-启动StudentAid第十五步批量输入兼容版.cmd
+启动StudentAid.cmd
 ```
 
 启动器执行规则：
@@ -71,7 +101,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\python.exe -B ait10.py` 启动，不生成运行字节码缓存。
+5. 使用 `.venv\Scripts\python.exe -B ait14.py` 启动，不生成运行字节码缓存。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -96,14 +126,14 @@ set STUDENTAID_INSTALL_ONLY=1
 支持以下输入：
 
 - 无表头：`SSN,月,日,年,姓,名,地址`
-- 无表头：`SSN,DOB,First Name,Last Name,Address`
+- 无表头：`SSN,DOB,First Name,Last Name`，第 5 列起可继续放任意数量的附加列
 - 带常见英文表头的 CSV/TXT/XLSX
 - DOB 支持数字日期及英文月份日期，例如 `09/07/1980`、`September 07, 1980`
 
-累计输出无表头，每行固定 9 列，与 `实际输出结果参考.csv` 一致：
+累计输出无表头，先逐列保留输入，再追加 4 个结果列：
 
 ```text
-输入第一列,DOB,First Name,Last Name,Address,Result Heading,Masked Phone,Masked Email,Recovery Method
+输入第1列,DOB,First Name,Last Name,输入第5列,...,输入第N列,Result Heading,Masked Phone,Masked Email,Recovery Method
 ```
 
 每条明确结果按“SQLite → 累计 CSV → 输入删行”的顺序实时提交。CSV/TXT 和 XLSX 输入删行都使用锁与原子替换；程序中断后可依靠累计输出第一列去重继续。
@@ -116,6 +146,8 @@ set STUDENTAID_INSTALL_ONLY=1
   ├─ Retrieve Your Log-in Information → 落盘 → 删输入行 → 点击可见 span Cancel
   │  → 验证结果页离开 → 同一浏览器/会话/页面的空表单直接填下一条
   ├─ Limit Reached: Try Again in 24 Hours → 正常落盘 → 删输入行 → 继续
+  ├─ Account Lookup Issue / Photo ID recovery message → 正常落盘 → 删输入行 → 继续
+  ├─ Enter a valid Social Security number. → 正常落盘 → 删输入行 → 继续
   ├─ 点击未触发 → Locator / Enter / DOM click 分级验证
   ├─ Loading 超时或会话失效 → 清数据 → 重开 → 最多自动重试 2 次
   └─ 停止或结束 → 删除缓存/profile → 结束本批次全部 Chrome
@@ -123,7 +155,7 @@ set STUDENTAID_INSTALL_ONLY=1
 
 ## 验证结果
 
-第十五步新增三位年份双向唯一恢复、无歧义姓名拆分、当前失败残留重新导入、结果/表单超时自动重试和输入原子替换占用重试回归；第十四步生日输出回归继续覆盖五列英文月份、五列短日期、七列拆分日期和补零格式。所有输出均为固定 9 列，生日严格为 `MM/DD/YYYY`。第十三步的联系方式、Cancel、Account Not Found、累计输出和输入删行逻辑继续保留。
+第十九步新增动态附加列和页面 SSN 校验结果回归；紧凑四/五/七列输入分别输出 8/9/11 列，旧拆分日期输入仍输出 9 列，生日严格为 `MM/DD/YYYY`。第十八步的两个新状态和任意正整数线程，以及此前的联系方式、Cancel、Account Not Found、累计输出和输入删行逻辑继续保留。
 
 窗口/browser-use 双线程现场 2/2 完成；包含参考手机号 `8139` 的记录，其电话和邮箱与 `实际输出结果参考.csv` 完全一致。窗口/playwright 双线程 2/2 完成，两条结果后四列均与参考逐列一致。另完成真实 Account Not Found 清数据/`about:blank` 验证，以及 2 线程 4 条复用矩阵：两个 Chrome 各只启动一次，Retrieve 后实际点击 Cancel 并复用空表单继续处理，最终 4/4 完成、失败 0、输入剩余 0。
 

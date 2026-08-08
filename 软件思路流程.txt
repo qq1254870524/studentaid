@@ -1,0 +1,61 @@
+C:\Users\zhang\Desktop\studentaid
+
+step1.打开https://studentaid.gov/fsa-id/sign-in/retrieve-account-details
+
+step2填资料.First Name
+<input _ngcontent-lrl-c54="" fsanumeral="" type="text" placeholder="" id="fsa_Input_ForgotUsernameFirstName" aria-invalid="false" aria-label="First Name" autocomplete="" spellcheck="false" class="form-control ng-untouched ng-pristine ng-valid" maxlength="35">
+
+Last Name
+<input _ngcontent-lrl-c54="" fsanumeral="" type="text" placeholder="" id="fsa_Input_ForgotUsernameLastName" aria-invalid="false" aria-label="Last Name" autocomplete="" spellcheck="false" class="form-control ng-pristine ng-valid ng-touched" maxlength="35">
+
+Month
+<select _ngcontent-lrl-c70="" class="form-control fsa-select ng-pristine ng-valid ng-touched" id="fsa_Input_ForgotUsernameDateOfBirthMonth"><option _ngcontent-lrl-c70="" value="" selected="" disabled="" hidden=""></option><!----><option _ngcontent-lrl-c70="" value="01">January</option><option _ngcontent-lrl-c70="" value="02">February</option><option _ngcontent-lrl-c70="" value="03">March</option><option _ngcontent-lrl-c70="" value="04">April</option><option _ngcontent-lrl-c70="" value="05">May</option><option _ngcontent-lrl-c70="" value="06">June</option><option _ngcontent-lrl-c70="" value="07">July</option><option _ngcontent-lrl-c70="" value="08">August</option><option _ngcontent-lrl-c70="" value="09">September</option><option _ngcontent-lrl-c70="" value="10">October</option><option _ngcontent-lrl-c70="" value="11">November</option><option _ngcontent-lrl-c70="" value="12">December</option><!----></select>
+
+Day
+<input _ngcontent-lrl-c70="" class="form-control ng-pristine ng-valid ng-touched" id="fsa_Input_ForgotUsernameDateOfBirthDay" min="1" type="number" fsa-safe-scroll-relative-offset="fsa_Header_ForgotUsernameDateOfBirth" aria-label="Day" maxlength="2">
+
+Year
+<input _ngcontent-lrl-c70="" class="form-control ng-pristine ng-valid ng-touched" id="fsa_Input_ForgotUsernameDateOfBirthYear" min="1900" type="number" fsa-safe-scroll-relative-offset="fsa_Header_ForgotUsernameDateOfBirth" aria-label="Year" maxlength="4">
+
+Social Security Number
+<input _ngcontent-lrl-c55="" type="text" inputmode="numeric" name="fsa_ssn" autocomplete="off" class="form-control ng-pristine ng-valid ng-touched" id="fsa_Input_ForgotUsernameSsnInput" required="true" aria-invalid="false" aria-label="Social Security Number" maxlength="11" spellcheck="false">
+
+step3点击.Continue。<span _ngcontent-lrl-c39="">Continue</span>
+
+step4判断.可以找回密码。<b _ngcontent-lrl-c120="" aria-live="polite">Retrieve Your Log-in Information</b>
+
+Text
+<p _ngcontent-icd-c120="" class="m-0 fsa-font-size-16 fsa-color-gray-60">(⦁⦁⦁) ⦁⦁⦁ 8139</p>
+
+Email
+<p _ngcontent-icd-c120="" class="m-0 fsa-font-size-16 fsa-color-gray-60">je⦁⦁⦁⦁⦁⦁⦁@yahoo.com</p>
+
+
+账户未找到
+<b _ngcontent-lrl-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Not Found</b>
+<b _ngcontent-icd-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Not Found: Create a New Account</b>
+
+step5.输出文件格式纯文本.scv。001-64-9705	05/14/1977	Meghan	Sarbanis	6 RANDALL LANE APT 4, HAMPSTEAD, NH 03841-0000	Retrieve Your Log-in Information	(⦁⦁⦁) ⦁⦁⦁ 2341	me⦁⦁⦁⦁⦁⦁⦁⦁⦁⦁@gmail.com	Recover my account with a photo ID
+输入原始格式不变，只是再后面添加列
+
+step6优化.输入文件的资料明确结果以后就删掉这条资料，如果输出文件第一列在输入文件也出现了，输入文件里面的这条文件也直接删掉。输出文件的数据是一直叠加的。
+
+step7核心存储：SQLite WAL，输入资料：纯文本 xlsx csv，导入后进入数据库，多线程：多个处理线程 + 一个数据库写入线程，最终结果：UTF-8 BOM CSV。GUI界面 选择导入文件，导出文件目录 输入线程数。开始 停止 按钮。
+
+step8实测.运行源码实时监控浏览器和GUI，实时检查问题，实时修复问题。彻底没问题以后上传到GITHUB。
+
+step9效验源码.通过browser-use操作验证源码步骤和精准度是否有问题？结果是否实时输出。实时检查问题，实时修复问题。browser-use只是用来效验源码是否有BUG，playwright才是实际运行的根基。An unknown error has occurred. Please try again later or close all browser windows and start over.是网页打开太久没有操作页面会话失效，重新打开https://studentaid.gov/fsa-id/sign-in/retrieve-account-details再填资料就可以了。
+
+step10.如果点击Continue以后是Account Not Found就清除浏览器所有数据然后回到空白页about:blank再打开https://studentaid.gov/fsa-id/sign-in/retrieve-account-details，接着换下一条数据。如果是Retrieve Your Log-in Information，记录好资料以后点Cancel，<span _ngcontent-tbs-c39="">Cancel</span>  填下一条资料。输入文件的资料明确结果以后就删掉这条资料，如果输出文件第一列在输入文件也出现了，输入文件里面的这条文件也直接删掉。输出文件的数据是一直叠加的。继续实测，实时检查问题，实时修复问题。反复实测后。最后制作一个统一的一键安装启动.cmd  不缺少就跳过，缺少就安装。全部打包上传到GitHub 稳定版。写好更新日志。
+
+step11.GUI界面下拉选项，选择browser-use或者playwright。停止脚本以后删除缓存 结束浏览器进程。像实际输出结果参考.csv学习输出文件，假资料测试3.xlsx用browser-use或者playwright二线程反复实测，输入速度可以快一点提升一点效率。点击Continue以后是<b _ngcontent-kht-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Limit Reached: Try Again in 24 Hours</b>也正常输出，最后状态就是Limit Reached: Try Again in 24 Hours。实时检查问题，实时修复问题。打包上传GITHUB Release。写好更新日志
+
+step12.GUI界面下拉选项 窗口/无头。窗口就是显示浏览器 但是小窗口。无头就是看不到浏览器窗口。测试窗口/browser-use，窗口/playwright 无头/browser-use，无头/playwright 实时检查问题，实时修复问题。打包上传GITHUB Release 无头版。写好更新日志
+
+step13.修复手机号没有记录。<p _ngcontent-icd-c120="" class="m-0 fsa-font-size-16 fsa-color-gray-60">(⦁⦁⦁) ⦁⦁⦁ 8139</p>没记录。你学习一下实际输出结果参考.csv，有就记录，没有就空着。<p _ngcontent-icd-c120="" class="m-0 fsa-font-size-16 fsa-color-gray-60">je⦁⦁⦁⦁⦁⦁⦁@yahoo.com</p>也一样。 严格遵守点击Continue以后是Account Not Found就清除浏览器所有数据然后回到空白页about:blank再打开https://studentaid.gov/fsa-id/sign-in/retrieve-account-details，复用当前浏览器接着换下一条数据。如果是Retrieve Your Log-in Information，记录好资料以后点Cancel，<span _ngcontent-tbs-c39="">Cancel</span>  复用当前浏览器填下一条资料。 输入文件的资料明确结果以后就删掉这条资料，如果输出文件第一列在输入文件也出现了，输入文件里面的这条文件也直接删掉。输出文件的数据是一直叠加的。点击Continue以后是<b _ngcontent-jxf-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Your Account Is Disabled</b>正常输出最后状态Your Account Is Disabled，测试窗口/browser-use，窗口/playwright 实时检查问题，实时修复问题。打包上传GITHUB Release 修复版。写好更新日志
+
+step14.点击Continue以后是<b _ngcontent-vsf-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Lookup Issue: Get Help</b>正常输出状态是Account Lookup Issue: Get Help。点击Continue以后是<div _ngcontent-wav-c117="">We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.</div>正常输出最后状态We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.   点击Continue以后是<div _ngcontent-yay-c49="" fsaerrormessagedisplayed="" class="ml-2 error-message error-message-a fsa-c-error-message-displayed" id="fsa_alertMessage_ForgotUsernameSsnInput">Enter a valid Social Security number.</div>之恶极输出Enter a valid Social Security number.  然后解开8线程的限制可以是任意线程。导入数据不强制列数前面四列是肯定有用的 后面的列顺延就可以。 已经没问题的功能不要修改
+
+帮我监控运行的程序，实时监控浏览器 源码 输入 输出文件 线程 下拉选项，实时检查问题，实时修复问题。修完问题以后按照之前的配置重新启动，一直到资料全部跑完。最后打包成exe别人可以直接使用。打包上传GITHUB Release 正式版。写好更新日志
+
+step14.GUI界面下拉选项 协议/模拟。通过协议的形式完成模拟的那些操作。已经没问题的功能不要修改。只测试协议。实测运行源码。实时检查问题，实时修复问题。彻底没问题以后上传到GITHUB。协议版。写好更新日志
