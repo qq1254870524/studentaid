@@ -1,12 +1,19 @@
-# StudentAid 批量处理工具（第十三步联系方式修复版）
+# StudentAid 批量处理工具（第十四步生日格式修复版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式入口是 `ait8.py`；推荐双击 `启动StudentAid第十三步联系方式修复版.cmd`。
+正式入口是 `ait9.py`；推荐双击 `启动StudentAid第十四步生日格式修复版.cmd`。
 
-## 第十三步完成内容
+## 第十四步完成内容
+
+- 累计输出第 2 列生日始终写成单列 `MM/DD/YYYY`，月份和日期不足两位时自动补零。
+- 五列输入中的英文月份、短日期或其他受支持格式只用于导入解析，不再原样写入输出。
+- 七列 `SSN,月,日,年,姓,名,地址` 输入仍可正常读取，但输出生日不会拆成三列；累计 CSV 始终固定 9 列。
+- 启动本次修复前已核对当前累计 CSV：17 行生日全部已经是单列 `MM/DD/YYYY`、每行 9 列，因此没有重写或损坏现有结果。
+
+第十三步的联系方式和页面流程继续保留：
 
 - 修复手机号漏记。StudentAid 当前实际使用 `⦁`（U+2981）遮挡号码；例如 `(⦁⦁⦁) ⦁⦁⦁ 8139` 现在会完整写入累计 CSV 第 7 列。
 - 脱敏邮箱同样从结果卡片的可见联系方式段落提取，例如 `je⦁⦁⦁⦁⦁⦁⦁@yahoo.com` 写入第 8 列。有手机号/邮箱就原样记录，没有就保持空白。
@@ -40,7 +47,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 双击：
 
 ```text
-启动StudentAid第十三步联系方式修复版.cmd
+启动StudentAid第十四步生日格式修复版.cmd
 ```
 
 启动器执行规则：
@@ -49,7 +56,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\python.exe -B ait8.py` 启动，不生成运行字节码缓存。
+5. 使用 `.venv\Scripts\python.exe -B ait9.py` 启动，不生成运行字节码缓存。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -57,7 +64,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 ```cmd
 set STUDENTAID_INSTALL_ONLY=1
-启动StudentAid第十三步联系方式修复版.cmd
+启动StudentAid第十四步生日格式修复版.cmd
 ```
 
 ## GUI 使用
@@ -101,7 +108,7 @@ set STUDENTAID_INSTALL_ONLY=1
 
 ## 验证结果
 
-第十三步新增 8 项针对性自动回归并全部通过，覆盖 `⦁` 手机号、掩码邮箱、联系方式缺失留空、页脚邮箱排除、累计输出、输入删行、可见 `span Cancel` 点击、Account Not Found 清数据和 `about:blank`。正式发布目录按运行版精简，不附带开发测试脚本。
+第十四步新增生日输出针对性回归，覆盖五列英文月份、五列短日期、七列拆分日期和补零格式；所有输出均为固定 9 列，生日严格为 `MM/DD/YYYY`。第十三步的联系方式、Cancel、Account Not Found、累计输出和输入删行回归继续通过。
 
 窗口/browser-use 双线程现场 2/2 完成；包含参考手机号 `8139` 的记录，其电话和邮箱与 `实际输出结果参考.csv` 完全一致。窗口/playwright 双线程 2/2 完成，两条结果后四列均与参考逐列一致。另完成真实 Account Not Found 清数据/`about:blank` 验证，以及 2 线程 4 条复用矩阵：两个 Chrome 各只启动一次，Retrieve 后实际点击 Cancel 并复用空表单继续处理，最终 4/4 完成、失败 0、输入剩余 0。
 
