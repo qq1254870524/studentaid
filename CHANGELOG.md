@@ -1,5 +1,46 @@
 # 更新日志
 
+## v0.17.0-step22-account-not-found-create-new-account — 2026-08-12
+
+### Account Not Found 完整状态
+
+- 正式源码新增 `ait17.py`，`ait16.py` 保持不改。
+- 点击 Continue 后精确出现 `Account Not Found: Create a New Account` 时，立即识别为正常明确结果，并将完整文案写入结果列。
+- 仍沿用原有 Account Not Found 的结果落盘、输入删除、累计追加、浏览器数据清理、`about:blank` 和下一条资料处理流程。
+- 仅调整该状态的常量、识别和结果收集；GUI 配置持久化、Continue/Cancel、浏览器复用、动态列、DOB、并发、SQLite 和其他明确结果保持不变。
+
+### 验证与发布
+
+- `ait16.py` 基线：20/20 测试通过。
+- `ait17.py` 修改后：21/21 测试通过，新增完整状态识别/输出测试。
+- PyInstaller Windows x64 独立 EXE、源码 ZIP 和 SHA256 校验文件随 GitHub Release 发布。
+
+
+## v0.16.0-step21-gui-config-persistence — 2026-08-12
+
+### GUI 配置持久化
+
+- 正式源码升级为 `ait16.py`，`ait15.py` 保持不改。
+- 保存输入文件、累计输出、浏览器后端、窗口/无头和线程数到运行目录 `studentaid_gui_config.json`。
+- 启动时恢复上次配置；配置文件缺失、损坏、后端/显示模式非法或线程数小于 1 时回退默认值。
+- 输入框、下拉框和线程数修改采用 300ms 防抖保存，点击“开始”和关闭窗口时强制保存，避免只改配置后退出导致丢失。
+- 配置采用临时文件原子替换；`studentaid_gui_config.json` 已加入 `.gitignore`，不进入源码提交和发布包。
+- 仅新增 GUI 配置读写；Continue、Cancel、浏览器生命周期、SQLite、输入删除、累计输出和既有明确结果逻辑未修改。
+
+### 验证与启动
+
+- `ait16.py` 基于 `ait15.py` 回归测试通过，并新增配置保存/恢复和损坏配置回退测试。
+- PyInstaller 入口、源码启动器和 Windows 文件版本升级为 `ait16.py` / `0.16.0.0`。
+
+## v0.15.1-startup-pythonw — 2026-08-11
+
+### 源码启动不再保留黑色控制台
+
+- `启动StudentAid.cmd` 继续保留 Python、Chrome、虚拟环境和依赖检查。
+- 正常启动阶段改为 `start "" .venv\Scripts\pythonw.exe -B ait15.py`，与 `E:\txfgsales\启动_TXFGSales.cmd` 的无控制台启动方式一致。
+- `python.exe` 只用于启动前检查和缺少依赖时的安装；GUI 本身由 `pythonw.exe` 启动，启动完成后不保留黑色控制台窗口。
+- `ait15.py`、浏览器流程、输入输出、SQLite 和既有功能均未修改。
+
 ## v0.15.0-step20-account-recovery-in-progress — 2026-08-09
 
 ### 新增页面明确结果

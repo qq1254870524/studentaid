@@ -9,6 +9,7 @@
 *.xls
 AIDATE*_OUTPUT_*/
 studentaid_results_*.csv
+studentaid_gui_config.json
 logs/
 .env
 .pytest_cache/

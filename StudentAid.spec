@@ -12,7 +12,7 @@ for package in ("playwright", "browser_use", "openpyxl"):
     hiddenimports += package_hidden
 
 a = Analysis(
-    ["ait15.py"],
+    ["ait17.py"],
     pathex=[],
     binaries=binaries,
     datas=datas,

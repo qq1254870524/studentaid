@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title StudentAid Step 20 Account Recovery In Progress - Install and Start
+title StudentAid Step 22 Account Not Found Full Status - Install and Start
 set "PYTHONDONTWRITEBYTECODE=1"
 
-if not exist "%~dp0ait15.py" (
-    echo [ERROR] ait15.py is missing from this directory.
+if not exist "%~dp0ait17.py" (
+    echo [ERROR] ait17.py is missing from this directory.
     pause
     exit /b 1
 )
@@ -63,6 +63,7 @@ if not defined CHROME_PATH (
 
 set "VENV_DIR=%~dp0.venv"
 set "APP_PY=%VENV_DIR%\Scripts\python.exe"
+set "APP_PYW=%VENV_DIR%\Scripts\pythonw.exe"
 if not exist "%APP_PY%" (
     echo [INSTALL] Creating isolated Python environment...
     %PY_RUN% -m venv "%VENV_DIR%"
@@ -73,6 +74,11 @@ if not exist "%APP_PY%" (
     )
 ) else (
     echo [SKIP] Isolated Python environment already exists.
+)
+if not exist "%APP_PYW%" (
+    echo [ERROR] pythonw.exe is missing from the isolated Python environment.
+    pause
+    exit /b 1
 )
 
 "%APP_PY%" -c "import tkinter, playwright, openpyxl; from browser_use.browser.profile import BrowserProfile" >nul 2>&1
@@ -101,14 +107,9 @@ if /i "%STUDENTAID_INSTALL_ONLY%"=="1" (
 )
 
 echo [START] Google Chrome: %CHROME_PATH%
-echo [START] StudentAid Step 20 Account Recovery In Progress...
-"%APP_PY%" -B "%~dp0ait15.py"
-set "APP_EXIT=%ERRORLEVEL%"
-if not "%APP_EXIT%"=="0" (
-    echo [ERROR] Application exit code: %APP_EXIT%
-    pause
-)
-exit /b %APP_EXIT%
+echo [START] StudentAid Step 22 Account Not Found Full Status...
+start "" "%APP_PYW%" -B "%~dp0ait17.py"
+exit /b 0
 
 :find_python
 set "PY_RUN="

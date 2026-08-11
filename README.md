@@ -1,12 +1,24 @@
-# StudentAid 批量处理工具（第二十步账户恢复进行中状态版）
+# StudentAid 批量处理工具（第二十二步 Account Not Found 完整状态版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait15.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
+正式源码入口是 `ait17.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十二步完成内容
+
+- 点击 Continue 后页面精确显示 `Account Not Found: Create a New Account` 时，结果列完整写入该状态，不再缩短为 `Account Not Found`。
+- 该状态沿用 Account Not Found 的清缓存、`about:blank`、输入删除、累计追加和当前浏览器下一条处理流程。
+- 只新增精确状态常量、识别/结果收集和回归测试；GUI 配置持久化以及其他网页、字段、并发、输出和清理逻辑保持不变。
+
+## 第二十一步完成内容
+
+- GUI 会将输入文件、累计输出、`browser-use/playwright`、`窗口/无头` 和线程数保存到运行目录的 `studentaid_gui_config.json`。
+- 下次双击源码启动器或独立 EXE 时自动恢复上次配置；配置文件缺失、损坏或线程数非法时回退默认值。
+- 配置在输入过程中自动防抖保存，点击开始和关闭窗口时再次保存；浏览器流程和既有数据逻辑不变。
 
 ## 第二十步完成内容
 
@@ -108,7 +120,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\python.exe -B ait14.py` 启动，不生成运行字节码缓存。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait17.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
