@@ -1,12 +1,20 @@
-# StudentAid 批量处理工具（第二十二步 Account Not Found 完整状态版）
+# StudentAid 批量处理工具（第二十三步 20 线程持久化优化版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait17.py`。给普通 Windows 用户使用时，推荐下载 GitHub Release 的独立 ZIP，完整解压后直接双击 `StudentAid-Batch-Tool.exe`；目标电脑不需要安装 Python。缺少 Google Chrome 时可双击 `Start-StudentAid.cmd` 自动安装后启动。
+正式源码入口是 `ait18.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十三步完成内容
+
+- 新增单独结果持久化线程：20 个浏览器 worker 只等待累计 CSV `flush/fsync`，不再等待输入 XLSX 整表保存。
+- 输出第一列在批次启动时读取一次并驻留内存，每条追加后更新去重集合，不再逐条扫描累计 CSV。
+- 输入删行按最多 20 个结果或 5 秒合并，停止和结束时强制刷新；累计输出先落盘，异常退出后仍由下次启动同步输入。
+- 使用当前 4,945 行测试 XLSX 的隔离副本验证 20 条结果：旧版逐条保存 18.883 秒，新版批量保存 1.527 秒，持久化路径提升 12.37 倍，剩余行数和输出行数一致。
+- 网页结果、Continue、Cancel、浏览器复用、动态列、DOB、队尾重试和任意正整数线程规则保持不变。
 
 ## 第二十二步完成内容
 
@@ -120,7 +128,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait17.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait18.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -179,3 +187,7 @@ set STUDENTAID_INSTALL_ONLY=1
 窗口/browser-use 双线程现场 2/2 完成；包含参考手机号 `8139` 的记录，其电话和邮箱与 `实际输出结果参考.csv` 完全一致。窗口/playwright 双线程 2/2 完成，两条结果后四列均与参考逐列一致。另完成真实 Account Not Found 清数据/`about:blank` 验证，以及 2 线程 4 条复用矩阵：两个 Chrome 各只启动一次，Retrieve 后实际点击 Cancel 并复用空表单继续处理，最终 4/4 完成、失败 0、输入剩余 0。
 
 开发测试脚本、测试资料、SQLite、累计结果、浏览器缓存、临时 profile 和录制文件均不进入发布包。
+
+## GitHub Release 发布约定
+
+后续默认只上传源码 ZIP、更新日志和源码 SHA256；不构建或上传 EXE、Windows 独立版 ZIP，除非之后明确重新要求。
