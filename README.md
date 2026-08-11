@@ -1,12 +1,20 @@
-# StudentAid 批量处理工具（第二十三步 20 线程持久化优化版）
+# StudentAid 批量处理工具（第二十四步 GUI 实时效率看板版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait18.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
+正式源码入口是 `ait19.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十四步完成内容
+
+- GUI 进度条下方新增实时效率看板，显示完成百分比、已处理/总数、剩余、待处理、处理中、明确结果、失败和停止数量。
+- 显示最近滚动 60 秒实际处理数量、批次平均每分钟处理量、预计剩余时间和批次已运行时间；运行中每秒刷新，取得新结果时立即刷新。
+- 首个 SQLite 状态快照作为速度基线，不把导入阶段已判定的格式错误误算成浏览器吞吐量；ETA 在尚无有效速度样本时显示 `--`。
+- 多 worker 并发上报出现先后交错时，旧进度快照不会让已处理数量或百分比倒退；批次结束后冻结最终耗时。
+- 只增加 GUI 统计展示，网页识别、Continue、Cancel、每线程浏览器复用、输入删除、累计输出和 Step23 持久化流水线保持不变。
 
 ## 第二十三步完成内容
 
@@ -128,7 +136,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait18.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait19.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 

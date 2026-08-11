@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title StudentAid Step 23 Persistence Pipeline - Install and Start
+title StudentAid Step 24 Realtime Metrics - Install and Start
 set "PYTHONDONTWRITEBYTECODE=1"
 
-if not exist "%~dp0ait18.py" (
-    echo [ERROR] ait18.py is missing from this directory.
+if not exist "%~dp0ait19.py" (
+    echo [ERROR] ait19.py is missing from this directory.
     pause
     exit /b 1
 )
@@ -107,8 +107,8 @@ if /i "%STUDENTAID_INSTALL_ONLY%"=="1" (
 )
 
 echo [START] Google Chrome: %CHROME_PATH%
-echo [START] StudentAid Step 23 Persistence Pipeline...
-start "" "%APP_PYW%" -B "%~dp0ait18.py"
+echo [START] StudentAid Step 24 Realtime Metrics...
+start "" "%APP_PYW%" -B "%~dp0ait19.py"
 exit /b 0
 
 :find_python
