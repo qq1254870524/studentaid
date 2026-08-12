@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.22.0-step27-preserve-input-columns — 2026-08-12
+
+### 原始输入列完整保留
+
+- 正式源码新增 `ait22.py`，`ait21.py` 保持不改。
+- 累计输出不再把 SSN、标准 DOB、First Name、Last Name 前插或替换到原始列；输出前 N 列现在与输入 N 列逐字段完全一致。
+- 只在原始输入行最后追加 `Result Heading`、`Masked Phone`、`Masked Email`、`Recovery Method` 四列。
+- 完整行去重键同步使用原始输入行，确保累计输出前缀、启动同步和明确结果删行使用同一组完整列。
+- 检查 `存资料处` 两个现场文件：输入 97 个物理行、每行 20 列；已有结果 94 行、每行 24 列。新版对 94 条有效资料验证为原始 20 列完整保留后追加 4 列，生成宽度仍为 24。
+- 仅修改列透传和对应测试；Continue、Cancel、浏览器复用、状态识别、任意线程、GUI 实时信息、SQLite、输入删除时机及缓存清理逻辑不变。
+
+### 验证
+
+- `ait21.py` 基线：40/40 测试通过。
+- `ait22.py`：40/40 测试通过；四列、七列、任意表头顺序、MyLife 20 列和批量持久化均验证只在末尾追加四列。
+- 现场文件结构探针：`records_checked=94`、`generated_widths=[24]`、`all_generated_prefixes_equal_original_rows=True`。
+
 ## v0.21.0-step26-full-row-dedupe — 2026-08-12
 
 ### 完整资料行去重

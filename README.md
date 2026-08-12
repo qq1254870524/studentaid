@@ -1,12 +1,20 @@
-# StudentAid 批量处理工具（第二十六步整行去重版）
+# StudentAid 批量处理工具（第二十七步原始输入列完整保留版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait21.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
+正式源码入口是 `ait22.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十七步完成内容
+
+- 累计输出的前 N 列与输入资料的 N 列逐列完全一致：列数、顺序和单元格内容均不删除、不替换、不前插。
+- 只在每条原始输入行最后追加四列：`Result Heading`、`Masked Phone`、`Masked Email`、`Recovery Method`。
+- `存资料处\需要查生日_MyLife结果.csv` 实际为 20 列；新版生成结果固定为原始 20 列加结果 4 列，共 24 列。
+- 完整行去重、累计输出判重和明确结果后的输入删除统一使用原始输入整行；页面结果四列不参与去重。
+- 只调整输入列透传；Continue、Cancel、浏览器复用、结果识别、线程、GUI、SQLite 和缓存清理保持不变。
 
 ## 第二十六步完成内容
 
@@ -133,8 +141,8 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 - `Account Not Found`：明确结果落盘并删输入行后，清浏览器数据、回到空白页，下一条重新打开找回页。
 - `Retrieve Your Log-in Information`：记录脱敏电话、脱敏邮箱和恢复方式后，点击 `Cancel`，确认空表单再填下一条。
-- `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
-- `Your Account Is Disabled`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
+- `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入原始输入列之后的第一个结果列，删对应输入行并继续。
+- `Your Account Is Disabled`：作为正常明确结果写入原始输入列之后的第一个结果列，删对应输入行并继续。
 - 累计输出一直叠加，按完整输入资料行去重；只有完整资料部分已经存在的输入行才会直接删除，同一第一列但其他字段不同的资料继续处理。
 - 只有明确结果或输出中已存在的资料才删除；格式错误、网页失败、停止和未取得明确结果的行保留。
 
@@ -152,7 +160,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait21.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait22.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -184,7 +192,7 @@ set STUDENTAID_INSTALL_ONLY=1
 累计输出无表头，先逐列保留输入，再追加 4 个结果列：
 
 ```text
-输入第1列,DOB,First Name,Last Name,输入第5列,...,输入第N列,Result Heading,Masked Phone,Masked Email,Recovery Method
+输入第1列,输入第2列,输入第3列,...,输入第N列,Result Heading,Masked Phone,Masked Email,Recovery Method
 ```
 
 每条明确结果按“SQLite → 累计 CSV → 输入删行”的顺序实时提交。CSV/TXT 和 XLSX 输入删行都使用锁与原子替换；程序中断后可依靠累计输出的完整输入资料行去重继续。
