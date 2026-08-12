@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title StudentAid Step 25 MyLife Format Adapter - Install and Start
+title StudentAid Step 26 Full Row Dedupe - Install and Start
 set "PYTHONDONTWRITEBYTECODE=1"
 
-if not exist "%~dp0ait20.py" (
-    echo [ERROR] ait20.py is missing from this directory.
+if not exist "%~dp0ait21.py" (
+    echo [ERROR] ait21.py is missing from this directory.
     pause
     exit /b 1
 )
@@ -107,8 +107,8 @@ if /i "%STUDENTAID_INSTALL_ONLY%"=="1" (
 )
 
 echo [START] Google Chrome: %CHROME_PATH%
-echo [START] StudentAid Step 25 MyLife Format Adapter...
-start "" "%APP_PYW%" -B "%~dp0ait20.py"
+echo [START] StudentAid Step 26 Full Row Dedupe...
+start "" "%APP_PYW%" -B "%~dp0ait21.py"
 exit /b 0
 
 :find_python

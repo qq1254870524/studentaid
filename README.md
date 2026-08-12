@@ -1,12 +1,20 @@
-# StudentAid 批量处理工具（第二十五步 MyLife 新格式自适应版）
+# StudentAid 批量处理工具（第二十六步整行去重版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait20.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
+正式源码入口是 `ait21.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十六步完成内容
+
+- 去重规则由“第一列/SSN相同”改为“完整输入资料行相同”；同一个 SSN 只要 DOB、姓名、地址或任意顺延字段不同，就分别处理并分别输出。
+- 完整行比较使用逻辑输入列：SSN、标准 `MM/DD/YYYY`、First Name、Last Name 和全部原始/顺延字段；MyLife 新格式的全部 20 个原始字段都会保留并参与比较，大小写或空白不同也视为不同整行，页面结果四列不参与输入资料去重。
+- 输入中完全相同的额外行仍只保留一条代表记录；明确结果后只删除与该完整行相同的输入，不会删除同 SSN 的其他不同资料。
+- 启动同步也按完整输入资料行匹配累计输出，不再看到相同第一列就直接删除。
+- SQLite 新增 `input_row_key`，完成、重试、失败和停止只联动完全相同的整行；网页流程、MyLife格式和GUI实时信息不变。
 
 ## 第二十五步完成内容
 
@@ -127,7 +135,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 - `Retrieve Your Log-in Information`：记录脱敏电话、脱敏邮箱和恢复方式后，点击 `Cancel`，确认空表单再填下一条。
 - `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
 - `Your Account Is Disabled`：作为正常明确结果写入累计 CSV 第 6 列，删对应输入行并继续。
-- 累计输出一直叠加，按第一列去重；输出第一列已存在的资料会从输入文件直接删除。
+- 累计输出一直叠加，按完整输入资料行去重；只有完整资料部分已经存在的输入行才会直接删除，同一第一列但其他字段不同的资料继续处理。
 - 只有明确结果或输出中已存在的资料才删除；格式错误、网页失败、停止和未取得明确结果的行保留。
 
 ## 一键安装启动
@@ -144,7 +152,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait20.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait21.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -179,7 +187,7 @@ set STUDENTAID_INSTALL_ONLY=1
 输入第1列,DOB,First Name,Last Name,输入第5列,...,输入第N列,Result Heading,Masked Phone,Masked Email,Recovery Method
 ```
 
-每条明确结果按“SQLite → 累计 CSV → 输入删行”的顺序实时提交。CSV/TXT 和 XLSX 输入删行都使用锁与原子替换；程序中断后可依靠累计输出第一列去重继续。
+每条明确结果按“SQLite → 累计 CSV → 输入删行”的顺序实时提交。CSV/TXT 和 XLSX 输入删行都使用锁与原子替换；程序中断后可依靠累计输出的完整输入资料行去重继续。
 
 ## 页面流程
 
