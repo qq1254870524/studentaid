@@ -1,12 +1,20 @@
-# StudentAid 批量处理工具（第二十四步 GUI 实时效率看板版）
+# StudentAid 批量处理工具（第二十五步 MyLife 新格式自适应版）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait19.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
+正式源码入口是 `ait20.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第二十五步完成内容
+
+- 自动识别 `primary_phone,ssn,known_birthday,full_name,...,生日` 的 MyLife 新格式 CSV；SSN 可以位于第二列，不要求在第一列。
+- `生日` 有值时优先作为 DOB；为空时自动使用 `known_birthday`。`full_name` 自动拆为 First Name 和 Last Name，`current_address` 自动映射为 Address。
+- 累计输出仍以真实 SSN 为第一列，随后为标准 `MM/DD/YYYY`、First Name、Last Name；MyLife 其余原始列按原顺序顺延，最后追加四个页面结果字段。
+- 启动同步去重和明确结果后的输入删行都按表头中的 SSN 列执行；当前新文件实测 96 条中 94 条可处理、2 条生日为空按既有缺字段规则直接删除。
+- 旧无表头四列/五列/七列、任意表头顺序、动态附加列和 Step24 GUI 实时看板保持不变。
 
 ## 第二十四步完成内容
 
@@ -136,7 +144,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
 4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait19.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait20.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 

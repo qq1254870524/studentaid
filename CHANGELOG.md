@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.20.0-step25-mylife-format-adapter — 2026-08-12
+
+### MyLife 新格式自适应
+
+- 正式源码新增 `ait20.py`，`ait19.py` 保持不改。
+- 自动识别 `primary_phone,ssn,known_birthday,full_name,...,生日` 表头；SSN 不再要求位于第一列。
+- `生日` 优先、`known_birthday` 备用；`full_name` 自动拆分 First Name/Last Name，`current_address` 映射 Address。
+- 累计输出第一列统一为真实 SSN，之后为标准 DOB、First Name、Last Name；未参与身份映射的 MyLife 原始列保持顺序透传。
+- 启动时按累计输出 SSN 同步删除输入行、明确结果后的删除也按表头 SSN 列执行，不再误用 `primary_phone`。
+- 当前现场 `需要查生日_MyLife结果.csv` 共 96 条：94 条完整有效，2 条生日为空，后者按既有缺少必填字段规则直接删除且不进入浏览器。
+- 网页状态、Continue、Cancel、浏览器复用、Step23 持久化流水线、Step24 实时效率看板和旧输入格式均未修改。
+
+### 验证
+
+- `ait19.py` 基线：30/30 测试通过。
+- `ait20.py`：35/35 测试通过，新增表头识别、生日优先/回退、姓名拆分、动态输出、第二列 SSN 删行和现场文件测试。
+
 ## v0.19.0-step24-gui-realtime-metrics — 2026-08-12
 
 ### GUI 实时效率看板
