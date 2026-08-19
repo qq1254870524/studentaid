@@ -1,0 +1,19 @@
+StudentAid v0.32.0 HTTP Fast Source Package
+Release date: 2026-08-19
+Entry point: ait32.py
+
+Files:
+- ait32.py
+- tests/test_ait32.py
+- 启动StudentAid.cmd
+- requirements.txt
+- requirements-build.txt
+- StudentAid.spec
+- version_info.txt
+- exe_selftest_hook.py
+- README.md
+- CHANGELOG.md
+- RELEASE_NOTES_v0.32.0.md
+- 软件思路流程.txt
+- .gitignore
+- .gitattributes

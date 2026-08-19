@@ -1,17 +1,103 @@
-# StudentAid 批量处理工具（第二十七步原始输入列完整保留版）
+# StudentAid 批量处理工具 v0.32.0（HTTP 快速版 / Step37）
 
 Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 `https://studentaid.gov/fsa-id/sign-in/retrieve-account-details`
 
-正式源码入口是 `ait22.py`。后续 GitHub Release 只发布源码 ZIP、更新日志和源码校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。
+正式源码入口是 `ait32.py`。GitHub Release 发布最新源码 ZIP、更新日志和 SHA256 校验文件；完整解压后双击 `启动StudentAid.cmd`，依赖存在时跳过，缺少时自动安装。GUI 将“搜索后端”选择为 `http` 即启用 HTTP 快速模式。
 
 源码运行可双击 `启动StudentAid.cmd`。
+
+## 第三十七步完成内容
+
+- 修复 Tab 分隔 TXT 中每行字段自身含逗号时被 `csv.Sniffer` 误判为逗号分隔的问题；稳定的四列以上 Tab 表现在优先按 Tab 读取。
+- 文本导入和结果落盘后的输入删行共用同一分隔符检测，避免导入正确但完成后删错行或无法删行。
+- 无表头宽表的姓名推断优先使用连续姓名列组，并排除大写美国州缩写，防止城市或州被误当成 Last Name。
+- 现场 `导入资料/8.18 强.txt` 共 4 行、每行 12 列，已全部识别成功；映射为 First Name 第 3 列、Last Name 第 4 列、Address 第 7 列、SSN 第 11 列、DOB 第 12 列。
+- 手机号、标记、年龄说明、邮箱列表、城市、州、邮编等其余字段不参与网页必填项，但全部按原列、原值保留到累计输出；Result Heading 仍为唯一最后一列。
+
+## 第三十六步完成内容
+
+- 开始批次和点击“清空数据库”前，自动为用户选择的输出目录增加当前 Windows 账户的可继承完全控制权限。
+- 已存在的累计 CSV、`studentaid.sqlite3`、`studentaid.sqlite3-wal`、`studentaid.sqlite3-shm` 会同步补齐当前账户权限。
+- 修复提升权限运行后新文件只归 `Administrators`，随后普通方式运行出现 `attempt to write a readonly database` 或累计 CSV 只能只读的问题。
+- 不改变数据库数据、累计 CSV 内容、输入资料、网页搜索逻辑和原有文件占用重试。
+
+## 第三十五步完成内容
+
+- 累计 CSV 的所有数据行按全文件最大原始输入宽度补齐空单元格，行列数保持一致；Result Heading 固定为唯一最后一列，不再因输入资料有 6/20/21/22 列而落在第 7/21/22/23 列。
+- Masked Phone、Masked Email、Recovery Method 三项结果详情继续保留，固定放在 Result Heading 前面；原始输入非空字段、字段顺序和字段文本不变。
+- 启动时自动迁移旧版 `Heading / Phone / Email / Method` 尾部顺序为 `Phone / Email / Method / Heading`，并使用临时文件、flush/fsync 和原子替换更新累计 CSV。
+- 后续如果导入文件比当前累计 CSV 更宽，程序会先一次性扩展已有行的输入区，再继续实时追加，确保结果状态始终在同一最后列。
+- 完整行去重读取时自动移除程序增加的尾部空对齐格；输入读取本身也会移除尾部空格，因此原有完整行去重、启动同步和输入删行语义不变。
+- 现场 `DL 新 StudentAid累计结果.csv` 共 43,140 行：旧行宽为 10/24/25/26，状态分散在第 7/21/22/23 列；迁移后 43,140 行统一为 26 列，状态全部位于第 26 列，43,140 个完整行键逐条保持一致。
+
+## 第三十四步完成内容
+
+- 修复大批量 XLSX 使用 20–30 个 HTTP 线程时出现“累计输出写入等待超时”并长时间不动的问题。
+- 根因是旧版每累计 20 个结果，就在唯一的结果持久化线程内使用 openpyxl 重写整个 4 万行 XLSX；重写期间该线程不能继续消费累计 CSV 写入命令，worker 等待 300 秒后集中超时。
+- XLSX 现在只实时写 SQLite 和累计 CSV，输入完整行删除键在内存合并；所有搜索 worker 结束后才一次性同步输入 XLSX。CSV/TXT 原有定时合并删除保持不变。
+- 启动恢复时，累计 CSV 已有的整行在只读导入后直接按完整行键跳过，不先重写大型 XLSX；已完成资料与本批新完成资料在批末一起删除。
+- XLSX 删行改为直接重写 ZIP 内对应 worksheet XML：单遍删除目标行并更新行号/单元格坐标，样式、共享字符串、其他工作表及其他工作簿部件原样保留。
+- `DL新.xlsx` 现场副本验证：43,140 条资料中精确删除已有累计结果 20 条，剩余 43,120 条；没有额外删除或遗漏，原文件未修改。新算法实际耗时约 26 秒，旧逐行搬移超过 300 秒仍未完成。
+- 卡住的旧 `ait27.py` 进程已停止；当时已安全写入累计 CSV 的 20 条结果保留，新版启动后会自动跳过，其他资料继续处理。
+
+## 第三十三步完成内容
+
+- 修复点击“清空数据库”后 GUI 未响应：`DELETE`、WAL 截断和 `VACUUM` 全部放到独立后台线程，Tk 主线程不再等待 SQLite 清理完成。
+- 清理过程中窗口仍可拖动和刷新，状态栏显示“正在清空数据库”；开始、路径、后端和清空按钮临时禁用，避免新批次与清理并发操作同一数据库。
+- 后台线程只执行 SQLite 并向 GUI 事件队列回传结果，不直接调用 Tk；完成或失败提示、日志与控件恢复都在 GUI 主线程执行。
+- 若清理时关闭窗口，可选择等待清理完成后自动退出，确保数据库事务不会被窗口关闭动作中断。
+- 清理范围保持不变：只清空 `batches`、`records` 和对应序列，不删除累计 CSV、输入文件、GUI 配置或其他数据库表。
+- 新增慢速数据库清理回归测试，确认 `_clear_database()` 在后台操作未完成时立即返回，GUI 控件状态正确且完成后恢复。
+
+## 第三十二步完成内容
+
+- GUI 的“开始”“停止”按钮旁新增“清空数据库”按钮，目标数据库根据当前“累计输出 CSV”路径自动定位为同目录下的 `studentaid.sqlite3`。
+- 点击按钮先显示数据库绝对路径并二次确认；清空 `batches`、`records` 和对应自增序列，随后执行 WAL 截断及 `VACUUM`，保留数据库表结构。
+- 只清空 SQLite 批次状态，不删除累计 CSV、输入 Excel/CSV、GUI 配置或其他文件。
+- 批次运行期间按钮自动禁用，方法内部还有第二层运行状态保护；数据库不存在、被占用或损坏时显示明确消息。
+- 已测试清空计数、表结构保留、非目标表保留、累计 CSV 不变、取消/运行状态保护和按钮启停状态。
+
+## 第三十一步完成内容
+
+- 去重键严格由原始输入行全部列逐格生成，末尾四个搜索结果列不参与输入去重；不使用 SSN、第一列或其他任意单列判重。
+- 批次队列、SQLite 完成/重试分组、累计输出判重、启动同步和结果完成后的输入删行全部复用同一个完整行键。
+- 无表头宽表的删行与启动同步现在复用导入阶段的自动列推断，确保能够重建同一个完整行键并精确删除。
+- 完全相同的整行只搜索一次；同一 SSN 只要 DOB、姓名、邮箱、电话、地址、Gender、Zodiac 或任意其他列不同，就分别搜索、分别输出。
+- `8.17 测试.xlsx` 实测 936 条完整行全部唯一，而 SSN 只有 928 个唯一值；额外 8 条同 SSN 不同整行全部保留为独立任务，不会被合并。
+- 合成 XLSX 回归验证：两个完全相同行被一起删除，同 SSN 但邮箱不同的行保持不动。
+
+## 第三十步完成内容
+
+- 无表头文件现在会抽样统计整表各列，按内容特征自动定位 SSN、DOB、First Name、Last Name 和 Address；低置信度时继续使用原有位置解析，不强行猜列。
+- 支持 `SSN / First / Middle / Last / DOB / Email / Phone / Address / Gender / Zodiac` 等无表头宽表，Middle Name 自动跳过。
+- `导入资料\8.17 测试.xlsx` 只读实测：936 条数据、10 列，全部 936 条有效，首行作为真实资料保留，自动映射为 `SSN=第1列、First=第2列、Last=第4列、DOB=第5列、Address=第8列`。
+- 原始 10 列逐格保留，结果输出为原始 10 列加既有结果 4 列，共 14 列。
+- 首条有效资料通过官方 HTTP 搜索现场探针，取得 HTTP 明确结果；探针不写累计结果、不删除输入行，文件哈希保持一致。
+- 带表头万能适配、旧无表头紧凑格式、HTTP、browser-use、playwright、SQLite、整行去重、累计输出和输入删行流程保持不变。
+
+## 第二十九步完成内容
+
+- 输入表头改为自动语义适配：列顺序任意，支持原始字段、`result_*` 字段、常见供应方前后缀，以及 SSN、出生日期、姓名、地址的中英文别名。
+- 同一行有原始身份和最终匹配身份时优先采用 `result_ssn/result_birth_date/result_first_name/result_last_name`；结果姓名为空时逐字段回退原始姓名。
+- DOB 新增 `YYYYMMDD`、`MMDDYYYY`、ISO 时间、点分隔日期和中文日期；缺失月日的部分日期继续标记为资料不完整，不猜测日期。
+- `存资料处\8.11 背调手机号 SSN.xlsx` 已只读实测：736 条数据中 465 条具备有效 SSN、完整 DOB 和姓名，可进入 HTTP/浏览器搜索；271 条缺少 SSN、缺少 DOB 或只有部分日期。
+- 该工作簿 37 个原始列逐格保留，累计结果仍只在末尾追加四列，总宽度 41 列。
+- HTTP、browser-use、playwright、默认后端、整行去重、SQLite、累计输出和输入删行流程保持不变。
+
+## 第二十八步完成内容
+
+- GUI 的“搜索后端”新增 `http`，同时保留原有 `browser-use` 和 `playwright`；默认值仍为 `browser-use`，已有配置和浏览器流程不变。
+- 每个 worker 使用独立 HTTP 会话，按官网当前页面、`keepSessionAlive`、`sessionUser`、网关会话和 CSRF 流程初始化，再调用账户找回 JSON 接口。
+- HTTP 返回继续写入既有四个结果字段；完整联系方式会先按官网展示规则遮挡，不在日志中输出身份资料或联系方式明文。
+- HTTP 401/403 自动重新初始化一次；HTTP 429、服务端错误和未知状态进入既有队尾重试，不会被误记为明确完成。
+- 本次未增加 USFull 结果表字段映射，现有输入识别、原始列透传、整行去重、SQLite、累计输出和输入删行规则保持不变。
 
 ## 第二十七步完成内容
 
 - 累计输出的前 N 列与输入资料的 N 列逐列完全一致：列数、顺序和单元格内容均不删除、不替换、不前插。
-- 只在每条原始输入行最后追加四列：`Result Heading`、`Masked Phone`、`Masked Email`、`Recovery Method`。
+- 第二十七步当时只在每条原始输入行最后追加四列：`Result Heading`、`Masked Phone`、`Masked Email`、`Recovery Method`；v0.30 已统一迁移为 `Masked Phone`、`Masked Email`、`Recovery Method`、`Result Heading`，并把状态固定在最后一列。
 - `存资料处\需要查生日_MyLife结果.csv` 实际为 20 列；新版生成结果固定为原始 20 列加结果 4 列，共 24 列。
 - 完整行去重、累计输出判重和明确结果后的输入删除统一使用原始输入整行；页面结果四列不参与去重。
 - 只调整输入列透传；Continue、Cancel、浏览器复用、结果识别、线程、GUI、SQLite 和缓存清理保持不变。
@@ -70,7 +156,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 ## 第十九步完成内容
 
 - 无表头紧凑输入只要求前四个逻辑列为 `SSN,DOB,First Name,Last Name`；从第 5 列起允许任意列数并逐列原样顺延，不再把地址、邮箱、电话等合并成一个 Address 字段。
-- 累计 CSV 在全部输入列后追加 `Result Heading,Masked Phone,Masked Email,Recovery Method`；因此四列输入输出 8 列、五列输入仍输出 9 列、`假资料测试2.xlsx` 的七列输入输出 11 列。
+- 第十九步当时在全部输入列后追加 `Result Heading,Masked Phone,Masked Email,Recovery Method`；v0.30 已把现行尾部顺序统一为 `Masked Phone,Masked Email,Recovery Method,Result Heading`，并按累计文件最大输入宽度补齐必要空对齐格。
 - 第 2 列 DOB 继续强制为单列 `MM/DD/YYYY`；旧七列拆分月/日/年格式继续使用原有九列输出，带表头任意顺序输入的既有输出逻辑不变。
 - `Enter a valid Social Security number.` 作为正常明确结果输出，落盘删行后清浏览器数据并复用当前 worker 处理下一条。
 
@@ -118,7 +204,7 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 第十三步的联系方式和页面流程继续保留：
 
-- 修复手机号漏记。StudentAid 当前实际使用 `⦁`（U+2981）遮挡号码；例如 `(⦁⦁⦁) ⦁⦁⦁ 8139` 现在会完整写入累计 CSV 第 7 列。
+- 修复手机号漏记。StudentAid 当前实际使用 `⦁`（U+2981）遮挡号码；例如 `(⦁⦁⦁) ⦁⦁⦁ 8139` 在当时固定 9 列格式中写入累计 CSV 第 7 列；v0.30 现行格式按最大输入宽度统一对齐。
 - 脱敏邮箱同样从结果卡片的可见联系方式段落提取，例如 `je⦁⦁⦁⦁⦁⦁⦁@yahoo.com` 写入第 8 列。有手机号/邮箱就原样记录，没有就保持空白。
 - 联系方式优先限定到 `p.fsa-color-gray-60`，兜底也只检查可见 `p`，不会把页脚公开邮箱误记为账户邮箱。
 - 修复 Retrieve 结果页的 `Cancel` 实际未点击：现在直接点击可见的 `<span>Cancel</span>`，并验证 URL、结果标题、Cancel 或输入表单确实发生变化，不能只凭“已发出点击”日志判断成功。
@@ -141,8 +227,8 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 - `Account Not Found`：明确结果落盘并删输入行后，清浏览器数据、回到空白页，下一条重新打开找回页。
 - `Retrieve Your Log-in Information`：记录脱敏电话、脱敏邮箱和恢复方式后，点击 `Cancel`，确认空表单再填下一条。
-- `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入原始输入列之后的第一个结果列，删对应输入行并继续。
-- `Your Account Is Disabled`：作为正常明确结果写入原始输入列之后的第一个结果列，删对应输入行并继续。
+- `Limit Reached: Try Again in 24 Hours`：作为正常明确结果写入固定最后一列 `Result Heading`，删对应输入行并继续。
+- `Your Account Is Disabled`：作为正常明确结果写入固定最后一列 `Result Heading`，删对应输入行并继续。
 - 累计输出一直叠加，按完整输入资料行去重；只有完整资料部分已经存在的输入行才会直接删除，同一第一列但其他字段不同的资料继续处理。
 - 只有明确结果或输出中已存在的资料才删除；格式错误、网页失败、停止和未取得明确结果的行保留。
 
@@ -159,8 +245,8 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 1. Python 3.11+ 已存在则跳过，否则通过 `winget` 安装 Python 3.12。
 2. Google Chrome 已存在则跳过，否则通过 `winget` 安装。
 3. `.venv` 已存在则复用，否则在程序目录创建隔离环境。
-4. `tkinter`、`playwright`、`openpyxl`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
-5. 使用 `.venv\Scripts\pythonw.exe -B ait22.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
+4. `tkinter`、`playwright`、`openpyxl`、`requests`、`browser-use` 都能导入则跳过；缺少时才按 `requirements.txt` 安装。
+5. 使用 `.venv\Scripts\pythonw.exe -B ait32.py` 启动 GUI，不生成运行字节码缓存；正常启动完成后不保留黑色控制台窗口。
 
 本版使用系统 Google Chrome，不需要执行 `playwright install chromium`。
 
@@ -168,14 +254,14 @@ Windows 桌面 GUI，批量处理 StudentAid 账户资料找回页面：
 
 ```cmd
 set STUDENTAID_INSTALL_ONLY=1
-启动StudentAid第十五步批量输入兼容版.cmd
+启动StudentAid.cmd
 ```
 
 ## GUI 使用
 
 1. 选择输入 `.csv`、`.scv`、`.txt` 或 `.xlsx`。
 2. 选择长期累计输出 CSV；已有内容不会覆盖。
-3. 选择浏览器后端 `browser-use` 或 `playwright`。
+3. 快速模式选择 `http`；需要浏览器页面流程时选择 `browser-use` 或 `playwright`。
 4. 选择 `窗口` 或 `无头`；默认无头，不显示浏览器。
 5. 线程数建议保持默认 2，然后点击“开始”。
 6. 点击“停止”后停止领取新任务，保留未取得明确结果的输入行，清缓存并结束本批次全部 Chrome。
@@ -189,10 +275,10 @@ set STUDENTAID_INSTALL_ONLY=1
 - 带常见英文表头的 CSV/TXT/XLSX
 - DOB 支持数字日期及英文月份日期，例如 `09/07/1980`、`September 07, 1980`
 
-累计输出无表头，先逐列保留输入，再追加 4 个结果列：
+累计输出无表头。所有行先按累计文件中的最大原始输入宽度补齐必要空对齐格，再固定追加 4 个结果列，`Result Heading` 是唯一最后一列：
 
 ```text
-输入第1列,输入第2列,输入第3列,...,输入第N列,Result Heading,Masked Phone,Masked Email,Recovery Method
+输入第1列,输入第2列,输入第3列,...,输入第N列,[必要空对齐格],Masked Phone,Masked Email,Recovery Method,Result Heading
 ```
 
 每条明确结果按“SQLite → 累计 CSV → 输入删行”的顺序实时提交。CSV/TXT 和 XLSX 输入删行都使用锁与原子替换；程序中断后可依靠累计输出的完整输入资料行去重继续。

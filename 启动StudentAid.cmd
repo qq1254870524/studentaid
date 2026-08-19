@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title StudentAid Step 27 Preserve All Input Columns - Install and Start
+title StudentAid Step 37 TXT Delimiter and Identity Mapping Fix - Install and Start
 set "PYTHONDONTWRITEBYTECODE=1"
 
-if not exist "%~dp0ait22.py" (
-    echo [ERROR] ait22.py is missing from this directory.
+if not exist "%~dp0ait32.py" (
+    echo [ERROR] ait32.py is missing from this directory.
     pause
     exit /b 1
 )
@@ -81,7 +81,7 @@ if not exist "%APP_PYW%" (
     exit /b 1
 )
 
-"%APP_PY%" -c "import tkinter, playwright, openpyxl; from browser_use.browser.profile import BrowserProfile" >nul 2>&1
+"%APP_PY%" -c "import tkinter, playwright, openpyxl, requests; from browser_use.browser.profile import BrowserProfile" >nul 2>&1
 if errorlevel 1 (
     echo [INSTALL] Python dependencies are incomplete. Installing missing packages...
     "%APP_PY%" -m pip install --disable-pip-version-check -r "%~dp0requirements.txt"
@@ -91,10 +91,10 @@ if errorlevel 1 (
         exit /b 1
     )
 ) else (
-    echo [SKIP] Tkinter, Playwright, openpyxl, and browser-use are already available.
+    echo [SKIP] Tkinter, Playwright, openpyxl, requests, and browser-use are already available.
 )
 
-"%APP_PY%" -c "import tkinter, playwright, openpyxl; from browser_use.browser.profile import BrowserProfile" >nul 2>&1
+"%APP_PY%" -c "import tkinter, playwright, openpyxl, requests; from browser_use.browser.profile import BrowserProfile" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Dependency verification failed.
     pause
@@ -107,8 +107,8 @@ if /i "%STUDENTAID_INSTALL_ONLY%"=="1" (
 )
 
 echo [START] Google Chrome: %CHROME_PATH%
-echo [START] StudentAid Step 27 Preserve All Input Columns...
-start "" "%APP_PYW%" -B "%~dp0ait22.py"
+echo [START] StudentAid Step 37 TXT Delimiter and Identity Mapping Fix...
+start "" "%APP_PYW%" -B "%~dp0ait32.py"
 exit /b 0
 
 :find_python

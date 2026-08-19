@@ -56,6 +56,10 @@ step13.修复手机号没有记录。<p _ngcontent-icd-c120="" class="m-0 fsa-fo
 
 step14.点击Continue以后是<b _ngcontent-vsf-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Lookup Issue: Get Help</b>正常输出状态是Account Lookup Issue: Get Help。点击Continue以后是<div _ngcontent-wav-c117="">We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.</div>正常输出最后状态We are unable to retrieve your log-in information. Access your account by recovering your account with a photo ID.   点击Continue以后是<div _ngcontent-yay-c49="" fsaerrormessagedisplayed="" class="ml-2 error-message error-message-a fsa-c-error-message-displayed" id="fsa_alertMessage_ForgotUsernameSsnInput">Enter a valid Social Security number.</div>之恶极输出Enter a valid Social Security number.  然后解开8线程的限制可以是任意线程。导入数据不强制列数前面四列是肯定有用的 后面的列顺延就可以。 已经没问题的功能不要修改
 
-帮我监控运行的程序，实时监控浏览器 源码 输入 输出文件 线程 下拉选项，实时检查问题，实时修复问题。修完问题以后按照之前的配置重新启动，一直到资料全部跑完。最后打包成exe别人可以直接使用。打包上传GITHUB Release 正式版。写好更新日志
+step15.点击Continue以后是<b _ngcontent-vec-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Recovery In Progress</b>正常输出状态Account Recovery In Progress.  点击Continue以后是<b _ngcontent-kid-c40="" class="fsa-banner-content-header fsa-font-20-px d-block fsa-mb-px-8">Account Not Found: Create a New Account</b>正常输出状态Account Not Found: Create a New Account，其他功能不要动只修改需要调整的 然后打包源码上传GITHUB Release 。写好更新日志
 
-step14.GUI界面下拉选项 协议/模拟。通过协议的形式完成模拟的那些操作。已经没问题的功能不要修改。只测试协议。实测运行源码。实时检查问题，实时修复问题。彻底没问题以后上传到GITHUB。协议版。写好更新日志
+step14.GUI界面下拉选项 协议/模拟。通过协议的形式完成模拟的那些操作。已经没问题的功能不要修改。只测试协议。实测运行源码。实时检查问题，实时修复问题。彻底没问题以后上传到GITHUB。协议版。写好更新日志,不会保存上次的配置，输入文件的列不可以删除要全部保留。只在最后的面增加列。其他功能不要动只修改需要调整的 然后打包源码上传GITHUB Release 。写好更新日志
+
+输出的结果保持一列，最后一列。DL 新 StudentAid累计结果.csv检查这个文件有的在前面 有的在后面，修改一下源码把这个文件也调整一下。
+
+实时监控GUI 浏览器  DevTools Selenium debug 源码 输入 输出文件 线程 下拉选项 日志 截图 能否成功过Cloudflare挑战，实时检查问题，实时修复问题。修完问题以后按照之前的配置重新启动GUI。解决的问题就不要改动了。彻底解决所有问题，一直到把数据全部跑完。最后打包成exe别人可以直接使用。打包上传GITHUB Release 正式版。写好更新日志，产生的缓存 临时文件和垃圾文件彻底删除。
